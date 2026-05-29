@@ -1,0 +1,13 @@
+{
+  "entities": [
+    {"type": "Concept", "canonical_name": "payment-service", "domain": "software-engineering"},
+    {"type": "Finding", "canonical_name": "checkout-timeout-2026-05-01", "summary": "checkout times out under high load"},
+    {"type": "Procedure", "canonical_name": "connection-pool-resize", "summary": "resize connection pool to resolve timeout"},
+    {"type": "Session", "canonical_name": "session-2026-05-01"}
+  ],
+  "relations": [
+    {"predicate": "OBSERVED_IN", "subject": "checkout-timeout-2026-05-01", "object": "session-2026-05-01"},
+    {"predicate": "ADDRESSES", "subject": "connection-pool-resize", "object": "checkout-timeout-2026-05-01"}
+  ],
+  "min_observations": 3
+}

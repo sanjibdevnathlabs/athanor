@@ -1,0 +1,9 @@
+# Embedding model + version pin.
+# kb-recall.sh refuses to query if the running Ollama doesn't match.
+# Bump requires re-indexing the entire KB.
+# Defaults inherit from SocratiCode's Ollama setup.
+
+ollama_model: nomic-embed-text
+ollama_version_min: 1.5
+qdrant_collection_version: v1
+indexed_at: 2026-05-06T00:00:00Z

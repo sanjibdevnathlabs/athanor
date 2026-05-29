@@ -1,0 +1,6 @@
+resolved
+mitigated
+open
+abandoned
+completed
+partial

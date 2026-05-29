@@ -1,0 +1,19 @@
+{
+  "artifacts": [
+    {
+      "name": "athanor-runbooks",
+      "path": ".athanor/runbooks",
+      "description": "Distilled runbooks per service+symptom. Each file is a self-contained playbook for resolving a specific symptom on a specific service."
+    },
+    {
+      "name": "athanor-sessions",
+      "path": ".athanor/distilled/sessions",
+      "description": "Per-session digests produced by the distiller after every Stop hook. Captures investigation timeline, tools used, what worked, what didn't."
+    },
+    {
+      "name": "athanor-skills",
+      "path": ".athanor/local-skills",
+      "description": "WIP local skills proposed by the distiller. Each is a reusable procedure with a confidence tier (unverified -> tested -> autonomous)."
+    }
+  ]
+}

@@ -1,0 +1,118 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Universal KB Entity Types — v2",
+  "description": "Canonical entity type schemas for a universal second brain. Five topic-agnostic types cover any domain (software, research, product, oncall, writing). Wrappers reject any entity not matching one of these.",
+  "definitions": {
+    "common": {
+      "type": "object",
+      "required": ["entity_type", "canonical_name", "source_session_id", "created_at"],
+      "properties": {
+        "entity_type": {"enum": ["Concept", "Finding", "Procedure", "Pattern", "Session"]},
+        "canonical_name": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,127}$"},
+        "source_session_id": {"type": "string"},
+        "created_at": {"type": "string", "format": "date-time"},
+        "confidence": {"enum": ["unverified", "tested", "autonomous"]},
+        "domain": {"type": "string", "description": "Free-form domain inferred by distiller, e.g. 'software-engineering', 'research', 'product'."},
+        "tags": {"type": "array", "items": {"type": "string"}},
+        "summary": {"type": "string", "minLength": 10, "maxLength": 500},
+        "created_under_protocol": {"type": "string", "default": "v2", "description": "Protocol version under which this entity was created (e.g. 'v2'). Set by kb-write-entity.sh from protocol/version.txt."}
+      }
+    }
+  },
+  "oneOf": [
+    {
+      "title": "Concept",
+      "description": "Any named thing worth knowing: tool, service, person, library, feature, organization, technology.",
+      "type": "object",
+      "required": ["entity_type", "canonical_name", "source_session_id", "created_at"],
+      "properties": {
+        "entity_type": {"const": "Concept"},
+        "canonical_name": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,127}$"},
+        "source_session_id": {"type": "string"},
+        "created_at": {"type": "string", "format": "date-time"},
+        "confidence": {"enum": ["unverified", "tested", "autonomous"]},
+        "domain": {"type": "string"},
+        "tags": {"type": "array", "items": {"type": "string"}},
+        "summary": {"type": "string", "minLength": 10, "maxLength": 500},
+        "created_under_protocol": {"type": "string"}
+      },
+      "additionalProperties": false
+    },
+    {
+      "title": "Finding",
+      "description": "Something discovered, concluded, or observed: bug, insight, root cause, hypothesis, anomaly, risk.",
+      "type": "object",
+      "required": ["entity_type", "canonical_name", "summary", "source_session_id", "created_at"],
+      "properties": {
+        "entity_type": {"const": "Finding"},
+        "canonical_name": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,127}$"},
+        "summary": {"type": "string", "minLength": 10, "maxLength": 500},
+        "source_session_id": {"type": "string"},
+        "created_at": {"type": "string", "format": "date-time"},
+        "confidence": {"enum": ["unverified", "tested", "autonomous"]},
+        "domain": {"type": "string"},
+        "tags": {"type": "array", "items": {"type": "string"}},
+        "created_under_protocol": {"type": "string"}
+      },
+      "additionalProperties": false
+    },
+    {
+      "title": "Procedure",
+      "description": "Repeatable steps or process: runbook, setup guide, debugging workflow, recipe, methodology.",
+      "type": "object",
+      "required": ["entity_type", "canonical_name", "source_session_id", "created_at"],
+      "properties": {
+        "entity_type": {"const": "Procedure"},
+        "canonical_name": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,127}$"},
+        "source_session_id": {"type": "string"},
+        "created_at": {"type": "string", "format": "date-time"},
+        "confidence": {"enum": ["unverified", "tested", "autonomous"]},
+        "domain": {"type": "string"},
+        "tags": {"type": "array", "items": {"type": "string"}},
+        "summary": {"type": "string", "minLength": 10, "maxLength": 500},
+        "outcome": {"enum": ["resolved", "mitigated", "open", "abandoned", "completed", "partial"], "description": "Session outcome. Use domain-appropriate term: resolved/completed = fully done; mitigated/partial = partially done; open = still active; abandoned = stopped."},
+        "created_under_protocol": {"type": "string"}
+      },
+      "additionalProperties": false
+    },
+    {
+      "title": "Pattern",
+      "description": "Recurring structure, problem type, or solution approach: design pattern, failure mode, anti-pattern.",
+      "type": "object",
+      "required": ["entity_type", "canonical_name", "source_session_id", "created_at"],
+      "properties": {
+        "entity_type": {"const": "Pattern"},
+        "canonical_name": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,127}$"},
+        "source_session_id": {"type": "string"},
+        "created_at": {"type": "string", "format": "date-time"},
+        "confidence": {"enum": ["unverified", "tested", "autonomous"]},
+        "domain": {"type": "string"},
+        "tags": {"type": "array", "items": {"type": "string"}},
+        "summary": {"type": "string", "minLength": 10, "maxLength": 500},
+        "created_under_protocol": {"type": "string"}
+      },
+      "additionalProperties": false
+    },
+    {
+      "title": "Session",
+      "description": "A work session capturing what was worked on, discovered, and the outcome.",
+      "type": "object",
+      "required": ["entity_type", "canonical_name", "session_id", "occurred_at", "outcome", "source_session_id", "created_at"],
+      "properties": {
+        "entity_type": {"const": "Session"},
+        "canonical_name": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,127}$"},
+        "session_id": {"type": "string"},
+        "occurred_at": {"type": "string", "format": "date-time"},
+        "outcome": {"enum": ["resolved", "mitigated", "open", "abandoned", "completed", "partial"], "description": "Session outcome. Use domain-appropriate term: resolved/completed = fully done; mitigated/partial = partially done; open = still active; abandoned = stopped."},
+        "source_session_id": {"type": "string"},
+        "created_at": {"type": "string", "format": "date-time"},
+        "confidence": {"enum": ["unverified", "tested", "autonomous"]},
+        "domain": {"type": "string"},
+        "tags": {"type": "array", "items": {"type": "string"}},
+        "summary": {"type": "string", "minLength": 10, "maxLength": 500},
+        "created_under_protocol": {"type": "string"}
+      },
+      "additionalProperties": false
+    }
+  ]
+}

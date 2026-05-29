@@ -1,0 +1,69 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Universal KB Observation Envelope — v2",
+  "description": "Public schema for observations. Wrappers (kb-write-observation.sh) enforce these constraints. An observation attaches a verbatim transcript-grounded fact to an existing entity.",
+  "type": "object",
+  "required": [
+    "entity_type",
+    "entity_name",
+    "observation",
+    "evidence_snippet",
+    "source_session_id"
+  ],
+  "properties": {
+    "entity_type": {
+      "type": "string",
+      "description": "Type of the entity this observation attaches to. Must match one of the types in entity-types.json.",
+      "enum": ["Concept", "Finding", "Procedure", "Pattern", "Session"]
+    },
+    "entity_name": {
+      "type": "string",
+      "description": "canonical_name of the target entity. Wrapper does NOT verify the entity exists in the graph (write-side validation). Caller is responsible for entity-first ordering."
+    },
+    "observation": {
+      "type": "string",
+      "minLength": 5,
+      "maxLength": 2000,
+      "description": "Factual statement about the entity. Present tense, grounded, no speculation."
+    },
+    "evidence_snippet": {
+      "type": "string",
+      "minLength": 20,
+      "description": "Verbatim quote (≥20 chars) from the source transcript that justifies the observation. Provenance gate — wrapper rejects shorter snippets. Should be findable via grep/rg in the raw transcript."
+    },
+    "source_session_id": {
+      "type": "string",
+      "description": "Session that produced this observation. Pairs with KB_SESSION_ID env. Used for surgical rollback via /athanor trace."
+    }
+  },
+  "additionalProperties": true,
+  "_runtime_enrichment": {
+    "description": "Wrapper enriches the staged record with these fields after validation. They are NOT user-provided.",
+    "added_fields": {
+      "id": "sha256(entity_id : observation_text)[:16]",
+      "entity_id": "sha256(entity_type : entity_name)[:16]",
+      "kind": "observation"
+    }
+  },
+  "_examples": [
+    {
+      "good": {
+        "entity_type": "Finding",
+        "entity_name": "react-useeffect-double-fire-strictmode",
+        "observation": "useEffect runs twice in development under React 18 StrictMode by design",
+        "evidence_snippet": "StrictMode intentionally double-invokes effects in dev to surface missing cleanup; production runs once",
+        "source_session_id": "abc-123"
+      }
+    },
+    {
+      "bad_short_evidence": {
+        "entity_type": "Concept",
+        "entity_name": "react",
+        "observation": "valid observation",
+        "evidence_snippet": "too short",
+        "source_session_id": "abc-123",
+        "_why_rejected": "evidence_snippet < 20 chars"
+      }
+    }
+  ]
+}

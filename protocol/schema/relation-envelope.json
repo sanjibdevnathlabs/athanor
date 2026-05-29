@@ -1,0 +1,40 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Universal KB Relation Envelope — v2",
+  "description": "Public envelope schema for relations. Pairs with relation-types.json which enumerates the allowed (subject_type, predicate, object_type) tuples. The wrapper (kb-write-relation.sh) enforces both this envelope and the tuple list.",
+  "type": "object",
+  "required": [
+    "subject_type",
+    "subject_name",
+    "predicate",
+    "object_type",
+    "object_name",
+    "source_session_id"
+  ],
+  "properties": {
+    "subject_type": {
+      "type": "string",
+      "enum": ["Concept", "Finding", "Procedure", "Pattern", "Session"]
+    },
+    "subject_name": {"type": "string", "description": "canonical_name of the subject entity"},
+    "predicate": {
+      "type": "string",
+      "description": "MUST be in vocabulary/relations.txt (LOCKED). The (subject_type, predicate, object_type) tuple MUST match an entry in relation-types.json."
+    },
+    "object_type": {
+      "type": "string",
+      "enum": ["Concept", "Finding", "Procedure", "Pattern", "Session"]
+    },
+    "object_name": {"type": "string", "description": "canonical_name of the object entity"},
+    "source_session_id": {"type": "string"}
+  },
+  "additionalProperties": true,
+  "_runtime_enrichment": {
+    "added_fields": {
+      "id": "sha256(subject_id : predicate : object_id)[:16]",
+      "subject_id": "sha256(subject_type : subject_name)[:16]",
+      "object_id": "sha256(object_type : object_name)[:16]",
+      "kind": "relation"
+    }
+  }
+}

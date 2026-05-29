@@ -1,0 +1,82 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Universal KB Relation Types — v2",
+  "description": "Canonical relation types for a universal second brain. Each entry defines a predicate with allowed subject_types and object_types (any of the 5 entity types unless constrained). Wrappers reject any relation whose (subject_type, predicate, object_type) tuple is not permitted here.",
+  "version": "v2",
+  "locked": true,
+  "entity_types": ["Concept", "Finding", "Procedure", "Pattern", "Session"],
+  "relations": [
+    {
+      "predicate": "REFERENCES",
+      "subject_types": ["Concept", "Finding", "Procedure", "Pattern", "Session"],
+      "object_types": ["Concept", "Finding", "Procedure", "Pattern", "Session"],
+      "description": "General reference from any entity to any entity."
+    },
+    {
+      "predicate": "ADDRESSES",
+      "subject_types": ["Procedure", "Concept"],
+      "object_types": ["Finding", "Concept"],
+      "description": "A Procedure or Concept addresses a Finding or Concept."
+    },
+    {
+      "predicate": "OBSERVED_IN",
+      "subject_types": ["Finding", "Pattern"],
+      "object_types": ["Session"],
+      "description": "A Finding or Pattern was observed in this Session."
+    },
+    {
+      "predicate": "RESOLVED_BY",
+      "subject_types": ["Finding"],
+      "object_types": ["Procedure"],
+      "description": "A Finding is resolved by following this Procedure."
+    },
+    {
+      "predicate": "INSTANCE_OF",
+      "subject_types": ["Finding", "Concept"],
+      "object_types": ["Pattern"],
+      "description": "A Finding or Concept is an instance of this Pattern."
+    },
+    {
+      "predicate": "RELATED_TO",
+      "subject_types": ["Concept", "Finding", "Procedure", "Pattern", "Session"],
+      "object_types": ["Concept", "Finding", "Procedure", "Pattern", "Session"],
+      "description": "Generic relationship between any two entities."
+    },
+    {
+      "predicate": "CORRECTED_IN",
+      "subject_types": ["Concept", "Finding", "Procedure", "Pattern", "Session"],
+      "object_types": ["Session"],
+      "description": "Something was corrected in this Session."
+    },
+    {
+      "predicate": "SUPERSEDES",
+      "subject_types": ["Finding", "Procedure", "Pattern"],
+      "object_types": ["Finding", "Procedure", "Pattern"],
+      "description": "A newer entity supersedes an older one (older marked deprecated)."
+    },
+    {
+      "predicate": "DISPUTED_BY",
+      "subject_types": ["Finding", "Procedure", "Pattern"],
+      "object_types": ["Session", "Concept"],
+      "description": "A Finding, Procedure, or Pattern is disputed by a Session or Concept; awaiting resolution."
+    },
+    {
+      "predicate": "CAUSES",
+      "description": "Subject directly causes or produces the object. Use for causal chains (event → outcome, finding → symptom, action → consequence).",
+      "subject_types": ["any"],
+      "object_types": ["any"]
+    },
+    {
+      "predicate": "DEPENDS_ON",
+      "description": "Subject requires or depends on the object to function or proceed. Use for dependencies, prerequisites, sequential ordering.",
+      "subject_types": ["any"],
+      "object_types": ["any"]
+    },
+    {
+      "predicate": "ALTERNATIVE_TO",
+      "description": "Subject is an alternative option to the object. Use for competing approaches, options, solutions, or candidates.",
+      "subject_types": ["any"],
+      "object_types": ["any"]
+    }
+  ]
+}

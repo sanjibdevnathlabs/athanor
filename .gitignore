@@ -1,0 +1,22 @@
+# Athanor KB — local-only, never committed
+.athanor/
+
+# Oncall runtime data — session transcripts, ledger, distiller state
+.oncall/
+
+# Live-session scratch space — ephemeral investigation notes, analysis drafts
+memory_bank/
+
+# Runbooks belong at .athanor/runbooks/, not the repo root
+runbooks/
+
+# OS / editor
+.DS_Store
+*.swp
+*~
+
+# Claude Code local state
+.claude/settings.local.json
+
+# Domain-specific overlay — environment config, never committed
+CLAUDE.local.md
