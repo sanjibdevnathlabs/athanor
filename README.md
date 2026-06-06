@@ -111,7 +111,7 @@ Tier 2 graders are forbidden from reading the distiller agent, the supervisor ag
     athanor-recall/             # Retrieval methodology
     athanor-supervision/        # Supervisor + auditor methodology
     distill-session/            # Distiller methodology
-    live-graph-writes/          # Live mid-session write rules
+    athanor-learn/              # On-demand "learn this" — full-pipeline mid-session capture
   agents/
     session-distiller.md        # Sonnet, async post-Stop — stages manifest
     kb-committer.md             # Reads prepared manifest, commits entities/relations/observations to Neo4j+Qdrant, writes session digest, runs confidence promotion
@@ -148,7 +148,7 @@ protocol/                      # Spec (committed) — schemas, vocab, recall alg
                                # clone has vocabulary and the write-gates function.
   vocabulary/
     entity-types.txt            # Concept, Finding, Procedure, Pattern, Session
-    relations.txt               # 9 locked relation predicates
+    relations.txt               # 12 locked relation predicates
     confidence-tiers.txt        # unverified, tested, autonomous
     session-outcomes.txt        # resolved, mitigated, open, abandoned
 
@@ -184,7 +184,7 @@ The KB accumulates knowledge from any domain. Content grows with use.
 | | |
 |---|---|
 | Entity types | `Concept`, `Finding`, `Procedure`, `Pattern`, `Session` |
-| Vocabulary | 5 entity types, 9 locked relation predicates, 3 confidence tiers, 4 session outcomes |
+| Vocabulary | 5 entity types, 12 locked relation predicates, 3 confidence tiers, 4 session outcomes |
 | Integrated MCPs | `knowledge-graph`, `socraticode` |
 
 > Additional domain-specific MCPs (observability, infra, data, messaging) can be added per your environment — see `CLAUDE.md` for examples.

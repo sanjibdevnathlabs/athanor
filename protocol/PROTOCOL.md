@@ -26,7 +26,7 @@ output across sessions and models.
 | L3 | Wrapper scripts (only write path) | `.claude/hooks/lib/kb-write-*.sh` |
 | L4 | Frozen retrieval algorithm | `recall-algorithm.md` |
 | L5 | Idempotent IDs (content hash) | `kb-common.sh::hash_id` |
-| L6 | Embedding model pin | `embeddings.lock` |
+| L6 | Qdrant collection contract (model owned by SocratiCode) | `embeddings.lock` |
 | L7 | Golden test fixtures | `test-fixtures/` |
 | L8 | Protocol version + migrations | `version.txt`, `migrations/` |
 

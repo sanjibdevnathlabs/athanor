@@ -20,7 +20,7 @@ The supervisor is forbidden from reading the distiller's prompt. If they shared 
 
 ### Commit flow: distiller stages, kb-committer commits, supervisor audits after
 
-The distiller runs as a read-only extraction agent: it reads the transcript, runs every candidate through `kb-write-*.sh` wrappers (schema validation, vocab check, idempotency), and stages approved artifacts to `_staging/<sid>/manifest.jsonl`. It never touches Neo4j or SocratiCode directly.
+The distiller runs as a read-only extraction agent: it reads the transcript, runs every candidate through `kb-write-*.sh` wrappers (schema validation, vocab check, idempotency), and stages approved artifacts to `_staging/<sid>/manifest.jsonl`. It never touches Neo4j directly.
 
 A separate kb-committer agent reads the prepared, sorted manifest and performs all graph writes. It runs `mcp__knowledge-graph__create_entities/relations/observations` in dependency order (entities first, then relations, then observations), writes `committed-ids.jsonl`, writes the session digest, runs the `codebase_context_index` for Qdrant, and performs confidence promotion.
 

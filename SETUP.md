@@ -42,8 +42,10 @@ docker run -d \
 brew install ollama
 ollama serve &
 
-# Pull the embedding model SocratiCode uses
-ollama pull nomic-embed-text
+# Pull the embedding model SocratiCode is configured to use.
+# athanor does not pin a specific model — use whatever your SocratiCode setup
+# embeds with. Check `codebase_health`. Example (current default):
+ollama pull qwen3-embedding:0.6b
 ```
 
 ### Claude Code CLI
@@ -125,7 +127,7 @@ curl -s localhost:6333/collections | jq .
 
 # Ollama
 ollama list
-# Expected: nomic-embed-text in the list
+# Expected: the model SocratiCode embeds with (e.g. qwen3-embedding:0.6b)
 ```
 
 Then open Claude Code in this directory and run:

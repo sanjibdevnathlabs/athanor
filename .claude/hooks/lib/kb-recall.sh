@@ -20,25 +20,10 @@ K="${2:-8}"
 # Ensure K is a positive integer
 [[ "$K" =~ ^[0-9]+$ ]] || K=8
 
-# Verify embedding model pin matches running Ollama (best-effort).
-# If embeddings.lock exists and Ollama is reachable, check version.
-EMB_LOCK="$KB_PROTOCOL_DIR/embeddings.lock"
-if [ -f "$EMB_LOCK" ]; then
-  PINNED_MODEL="$(grep -E '^ollama_model:' "$EMB_LOCK" | awk '{print $2}')"
-else
-  PINNED_MODEL="nomic-embed-text"
-fi
-
-# Enforce the embedding pin: query Ollama and confirm the pinned model is loaded.
-# Non-blocking — warn but never fail (UserPromptSubmit has a 3s budget; curl caps at 2s).
-OLLAMA_URL="${OLLAMA_URL:-http://localhost:11434}"
-EMBED_WARNING=""
-if [ -n "$PINNED_MODEL" ]; then
-  AVAILABLE="$(curl -s --max-time 2 "$OLLAMA_URL/api/tags" 2>/dev/null | grep -F "\"$PINNED_MODEL\"" || true)"
-  if [ -z "$AVAILABLE" ]; then
-    EMBED_WARNING="WARNING: pinned embedding model '$PINNED_MODEL' not found in Ollama. Vector search results may be degraded."
-  fi
-fi
+# athanor does NOT pin/verify the embedding model. SocratiCode owns embedding and
+# uses one configured model for both indexing and querying, so index/query
+# consistency holds by construction. A separate athanor-side check was redundant
+# and fired false "model not found" warnings when its hardcoded value drifted.
 
 # Pre-flight: detect an empty KB (fresh install) so the caller knows recall
 # steps will legitimately return nothing. Best-effort; never fails.
@@ -53,7 +38,6 @@ fi
 
 # Build the warnings array (only non-empty entries).
 WARN_ITEMS=()
-[ -n "$EMBED_WARNING" ] && WARN_ITEMS+=("$(printf '%s' "$EMBED_WARNING" | jq -Rs .)")
 [ -n "$EMPTY_KB_NOTE" ] && WARN_ITEMS+=("$(printf '%s' "$EMPTY_KB_NOTE" | jq -Rs .)")
 if [ "${#WARN_ITEMS[@]}" -gt 0 ]; then
   WARNINGS_JSON="[$(IFS=,; echo "${WARN_ITEMS[*]}")]"
@@ -67,7 +51,6 @@ cat <<EOF
   "protocol_version": "v2",
   "query": $(printf '%s' "$QUERY" | jq -Rs .),
   "k": $K,
-  "embedding_model_pinned": "$PINNED_MODEL",
   "steps": [
     {
       "id": 1,

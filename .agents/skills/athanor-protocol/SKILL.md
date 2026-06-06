@@ -5,7 +5,7 @@ description: MANDATORY rulebook for all athanor KB operations. Read this before 
 
 # athanor-protocol
 
-The single source of truth for KB operations. Wrappers in `.claude/hooks/lib/kb-*.sh` enforce this protocol at runtime. The protocol spec lives at `protocol/` (committed to git).
+The single source of truth for KB operations. Wrappers in `.Codex/hooks/lib/kb-*.sh` enforce this protocol at runtime. The protocol spec lives at `protocol/` (committed to git).
 
 ## TL;DR for agents
 
@@ -24,7 +24,7 @@ echo '{
   "domain": "software-engineering",
   "source_session_id": "<session-id>",
   "created_at": "2026-05-06T14:32:00Z"
-}' | bash .claude/hooks/lib/kb-write-entity.sh
+}' | bash .Codex/hooks/lib/kb-write-entity.sh
 ```
 
 Possible outputs (read exactly):
@@ -46,7 +46,7 @@ echo '{
   "object_type": "Procedure",
   "object_name": "connection-pool-resize",
   "source_session_id": "<session-id>"
-}' | bash .claude/hooks/lib/kb-write-relation.sh
+}' | bash .Codex/hooks/lib/kb-write-relation.sh
 ```
 
 Predicate must be in `vocabulary/relations.txt` (LOCKED). Tuple `(subject_type, predicate, object_type)` must match an entry in `schema/relation-types.json`. Otherwise `reject:`.
@@ -60,7 +60,7 @@ echo '{
   "observation": "checkout p99 jumped to 4200ms within 2 minutes of peak load",
   "evidence_snippet": "p99=4200ms, started 14:32 UTC ... connection pool maxed at 50 conns",
   "source_session_id": "<session-id>"
-}' | bash .claude/hooks/lib/kb-write-observation.sh
+}' | bash .Codex/hooks/lib/kb-write-observation.sh
 ```
 
 `evidence_snippet` is mandatory and must be ≥20 chars. The wrapper enforces this provenance gate.
@@ -68,7 +68,7 @@ echo '{
 ## Read protocol
 
 ```bash
-bash .claude/hooks/lib/kb-recall.sh "high latency on care service"
+bash .Codex/hooks/lib/kb-recall.sh "high latency on care service"
 ```
 
 Returns a JSON plan with:

@@ -75,10 +75,11 @@ Changing the algorithm or weights requires a protocol version bump.
 ## Determinism guarantees
 
 - Same query string → same retrieval (modulo new data writes).
-- Embedding model pinned via `embeddings.lock`. `kb-recall.sh` checks the running
-  Ollama (`/api/tags`, 2s timeout) for the pinned model. On mismatch it emits a
-  warning and proceeds with a staleness caveat — recall is never blocked (it does
-  NOT refuse to query), since the UserPromptSubmit hook has a tight time budget.
-  Set `OLLAMA_URL` to override the default `http://localhost:11434`.
+- Embedding consistency is owned by SocratiCode, not athanor: SocratiCode uses one
+  configured model for both indexing and querying, so query and index vectors are
+  always in the same space. athanor does not pin or verify the model — a prior
+  athanor-side pin was a redundant second source of truth that drifted and fired
+  false warnings. If you change SocratiCode's embedding model, re-index all
+  artifacts via `codebase_context_index`; existing vectors are model-specific.
 - The scoring rubric is a fixed set of additive rules over result metadata; no
   model-side ranking calls and no frontmatter reads.

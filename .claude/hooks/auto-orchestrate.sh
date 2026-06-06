@@ -27,13 +27,15 @@ if echo "$P_LOWER" | grep -qiE \
   IS_INVESTIGATION=true
 fi
 
-# Detect explicit capture intent
-IS_CAPTURE=0
-echo "$P_LOWER" | grep -qE '\b(remember|note that|important to know|for future reference|key insight|capture this)\b' \
-  && IS_CAPTURE=1
+# Detect explicit learn/capture intent. Unified: every capture or learn signal
+# now routes to the full-pipeline athanor-learn skill (graph + qdrant + digest +
+# supervisor audit), superseding the old graph-only live-graph-writes path.
+IS_LEARN=0
+echo "$P_LOWER" | grep -qE '\b(remember|note that|important to know|for future reference|key insight|capture this|learn (this|it|that)|memori[sz]e|add (this )?to (my )?(2nd|second )?brain|learn .* in (this )?codebase)\b' \
+  && IS_LEARN=1
 
 # Decide
-if [ "$IS_INVESTIGATION" = false ] && [ "$IS_CAPTURE" -eq 0 ]; then
+if [ "$IS_INVESTIGATION" = false ] && [ "$IS_LEARN" -eq 0 ]; then
   exit 0  # nothing to do
 fi
 
@@ -47,8 +49,9 @@ fi
     printf '\nIf the plan returns results, lead your response with: "From past sessions: [key finding]"\n'
     printf 'If no relevant results, proceed normally.\n'
   fi
-  if [ "$IS_CAPTURE" -eq 1 ]; then
-    printf '\n[athanor auto-orchestrate] Capture intent detected. Use kb-write-* wrappers per athanor-protocol skill before any mcp__knowledge-graph__* call.\n'
+  if [ "$IS_LEARN" -eq 1 ]; then
+    printf '\n## Athanor: Learn intent detected — run the athanor-learn skill\n'
+    printf 'The user wants a durable fact captured. Follow the athanor-learn skill: extract → stage via kb-write-* under a dedicated LEARN_SID → run kb-learn-commit.sh (graph + qdrant + digest + supervisor). Do NOT call mcp__knowledge-graph__* directly. Confirm in one line.\n'
   fi
 } 2>/dev/null
 

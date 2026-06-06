@@ -155,7 +155,7 @@ For each (subject, predicate, object) triple supported by transcript evidence:
 echo '<relation-json>' | bash .claude/hooks/lib/kb-write-relation.sh
 ```
 
-Use only the nine LOCKED predicates, and only tuples permitted by `protocol/schema/relation-types.json`. Common shapes:
+Use only the twelve LOCKED predicates, and only tuples permitted by `protocol/schema/relation-types.json`. Common shapes:
 
 - `Concept` —`OBSERVED_IN`→ ... no: a `Finding` or `Pattern` —`OBSERVED_IN`→ `Session` (a discovery/pattern surfaced in this session)
 - `Finding` —`RESOLVED_BY`→ `Procedure` (the steps that fixed the finding)
@@ -175,7 +175,17 @@ Forbidden relations: speculative ("might be related to"), future-tense ("will pr
 
 ### 6. Identify + stage observations
 
-For each new fact about an existing entity (with verbatim transcript snippet ≥20 chars as `evidence_snippet`):
+**First, honor the live-learn marker.** Mid-session "learn this" captures already committed their observations through the full pipeline. Re-staging them here would create paraphrased near-duplicates (observation IDs hash on text). Build a skip-set of entity names already learned live this session:
+
+```bash
+MARKER="${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null)}/.athanor/_state/learned-ids/<session_id>.jsonl"
+# entities in this marker were committed live — do NOT stage observations for them
+[ -f "$MARKER" ] && jq -r '.entity' "$MARKER" 2>/dev/null | sort -u
+```
+
+Skip any observation whose `entity_name` is in that set. (You may still stage genuinely new entities/relations — only observations on already-learned entities are suppressed, since those entities dedup by content-hash anyway.)
+
+For each remaining new fact about an existing entity (with verbatim transcript snippet ≥20 chars as `evidence_snippet`):
 
 ```bash
 echo '<observation-json>' | bash .claude/hooks/lib/kb-write-observation.sh
@@ -267,7 +277,7 @@ SocratiCode indexing is done by kb-committer after all Neo4j commits. The commit
 - ❌ Calling `mcp__knowledge-graph__create_entities`, `create_relations`, or `add_observations` — not in the distiller's tools. Staging via wrappers is the distiller's job; committing is the kb-committer's exclusive job.
 - ❌ Calling `kb_record_commit` — the committer records committed ids after each successful Neo4j commit.
 - ❌ Writing the session digest or refreshing the SocratiCode index — both are the kb-committer's job, done after commits land.
-- ❌ Inventing vocabulary or relation predicates. Route missing terms to `pending-vocab-additions.json`; use only the nine LOCKED predicates.
+- ❌ Inventing vocabulary or relation predicates. Route missing terms to `pending-vocab-additions.json`; use only the twelve LOCKED predicates.
 - ❌ Inventing a domain-specific entity type. Everything maps to one of the five universal types.
 
 ## Output to caller

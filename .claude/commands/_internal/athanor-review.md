@@ -9,7 +9,7 @@ Args: `$ARGUMENTS` (optional: `--batch`)
 ## Default — interactive walk
 
 1. Read `.athanor/_state/hitl-queue.jsonl` line by line.
-2. Skip any line that already has a matching decision in `.athanor/_state/hitl-decisions.jsonl` (keyed by ts+type+subject).
+2. Skip any line that already has a matching decision in `.athanor/_state/hitl-decisions.jsonl` (keyed by `ts+type+subject`, or `ts+type+session_id` when `subject` is absent, or `ts+type+manifest_path` as a final fallback).
 3. For each unprocessed item, present:
    ```
    [N/M]  type=<type>  subject=<subject>
@@ -50,9 +50,14 @@ Args: `$ARGUMENTS` (optional: `--batch`)
    - **bypass_detected** / **unauthorized_delete** — A graph write bypassed the wrapper gates.
      - Review: check the flagged entity in Neo4j. If legitimate, add to committed-ids.jsonl and mark resolved.
      - If malicious: run kb-delete.sh to remove the entity, reset kill switch.
+   - **learn_supervisor_no_outcome** — Learn commit succeeded, but supervisor produced no outcome.
+     - Action: manually review the prepared manifest, digest, and `last-learn-*` logs. If issues found, use `kb-delete.sh`.
+     - Mark resolved: add a `hitl-decisions.jsonl` entry confirming manual review.
+     - If this came from `/_internal/slack-backfill`, advance `.athanor/_state/slack-backfill-cursor.json` to the replayed Slack ts (`last_processed_ts` + `last_committed_ts`) and set `last_mode` to `commit`, because the records are already committed and replaying the same post again is wrong.
    - **supervisor_timeout_auto_approved** — Session was committed without supervisor review (timeout).
      - Action: manually review the session digest and graph entities. If issues found, use kb-delete.sh.
      - Mark resolved: add a `hitl-decisions.jsonl` entry confirming manual review.
+     - If this item also gates a replay cursor, advance that cursor after acceptance.
 6. Append decision row to `.athanor/_state/hitl-decisions.jsonl`.
 7. After loop: print `reviewed N items · approved=A rejected=R skipped=S noted=O`.
 

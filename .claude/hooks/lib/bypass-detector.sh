@@ -42,7 +42,7 @@ esac
 log_hitl() {
   # $1=type $2=tool $3=entity_type(may be empty) $4=extra-reason(may be empty)
   local type="$1" tool_name="$2" entity_type="${3:-}" reason="${4:-}"
-  jq -n \
+  jq -nc \
     --arg ts "$TS" \
     --arg type "$type" \
     --arg session_id "$SID" \
@@ -85,9 +85,13 @@ if [ "$GRAPH_CALL" -eq 1 ]; then
 
       # ---- Bug 2 (C3): per-record authorization for create/observe writes. ----
       *)
-        # Extract the records being written. create_entities/create_relations/
-        # add_observations all carry an "entities" array (name+type per record).
-        # Fail-closed: malformed / missing array → whole call is a bypass.
+        # Only create_entities carries a per-record .entities array (name+type),
+        # which lets us authorize each record by its content-hash id. create_relations
+        # (.relations: from/to/relationType) and add_observations (.observations:
+        # entityName) use a different input shape that lacks the entity TYPES needed to
+        # recompute per-record ids — so they fall back to SESSION-SCOPED authorization
+        # (the documented model: a staged manifest means wrappers validated this
+        # session's writes). Only a genuinely-unparseable create_entities fails closed.
         RECORDS_TSV="$(printf '%s' "$INPUT" | jq -r '
           .tool_input.entities
           | if type == "array" then
@@ -96,10 +100,37 @@ if [ "$GRAPH_CALL" -eq 1 ]; then
         ' 2>/dev/null)"
 
         if [ -z "$RECORDS_TSV" ]; then
-          # Could not parse any record → fail closed, treat as bypass.
-          printf '{"ts":"%s","kind":"bypass","tool":"%s","session_id":"%s","reason":"unparseable-tool-input-fail-closed"}\n' \
-            "$TS" "$TOOL" "$SID" >> "$KB_STATE_DIR/bypass-log.jsonl"
-          log_hitl "bypass_detected" "$TOOL" "" "unparseable tool input (fail-closed)"
+          case "$TOOL" in
+            mcp__knowledge-graph__create_relations|mcp__knowledge-graph__add_observations)
+              # Session-scoped: authorized iff a staged manifest exists (direct, or via
+              # committer-active.json for the committer's fresh session id).
+              SESS_OK=0
+              if [ -n "$SESSION_MANIFEST" ] && [ -f "$SESSION_MANIFEST" ]; then
+                SESS_OK=1
+              fi
+              if [ "$SESS_OK" -eq 0 ]; then
+                COMMITTER_ACTIVE="$KB_STATE_DIR/committer-active.json"
+                if [ -f "$COMMITTER_ACTIVE" ]; then
+                  ORIG_SID=$(jq -r '.original_sid // empty' "$COMMITTER_ACTIVE" 2>/dev/null)
+                  [ -n "$ORIG_SID" ] && [ -f "$KB_STAGING_DIR/$ORIG_SID/manifest.jsonl" ] && SESS_OK=1
+                fi
+              fi
+              if [ "$SESS_OK" -eq 1 ]; then
+                printf '{"ts":"%s","kind":"authorized","tool":"%s","session_id":"%s","reason":"session-scoped-manifest"}\n' \
+                  "$TS" "$TOOL" "$SID" >> "$KB_STATE_DIR/bypass-log.jsonl" 2>/dev/null || true
+              else
+                printf '{"ts":"%s","kind":"bypass","tool":"%s","session_id":"%s","reason":"no-session-manifest"}\n' \
+                  "$TS" "$TOOL" "$SID" >> "$KB_STATE_DIR/bypass-log.jsonl"
+                log_hitl "bypass_detected" "$TOOL" "" "no staged manifest for session (relations/observations)"
+              fi
+              ;;
+            *)
+              # create_entities with missing/unparseable .entities → genuine fail-closed.
+              printf '{"ts":"%s","kind":"bypass","tool":"%s","session_id":"%s","reason":"unparseable-tool-input-fail-closed"}\n' \
+                "$TS" "$TOOL" "$SID" >> "$KB_STATE_DIR/bypass-log.jsonl"
+              log_hitl "bypass_detected" "$TOOL" "" "unparseable tool input (fail-closed)"
+              ;;
+          esac
         else
           # Check each record's deterministic id against the session manifest.
           while IFS=$'\t' read -r REC_TYPE REC_NAME; do

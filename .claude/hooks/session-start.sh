@@ -61,7 +61,7 @@ if [ -f "$QUEUE" ]; then
           printf '%s\t%s\t%s\t%s\n' "$p" "$ts" "$ty" "$sid"
         fi
       done
-  )"
+  )" || true
   if [ -n "$HITL_RANKED" ]; then
     HITL_COUNT="$(printf '%s\n' "$HITL_RANKED" | grep -c . || echo 0)"
     # Sort by priority asc, then ts asc (FIFO). Pick the first.

@@ -1,9 +1,11 @@
-# Embedding model + version pin.
-# kb-recall.sh refuses to query if the running Ollama doesn't match.
-# Bump requires re-indexing the entire KB.
-# Defaults inherit from SocratiCode's Ollama setup.
+# Qdrant collection contract for athanor's vector layer.
+#
+# athanor does NOT pin the embedding model. SocratiCode owns embedding: it uses
+# one configured model for BOTH indexing and querying, so index/query consistency
+# is guaranteed by construction. Recording a model name here would be a redundant
+# second source of truth that drifts and fires false "model not found" warnings.
+#
+# If you change SocratiCode's embedding model, re-index all artifacts via
+# codebase_context_index — existing vectors are model-specific and incompatible.
 
-ollama_model: nomic-embed-text
-ollama_version_min: 1.5
 qdrant_collection_version: v1
-indexed_at: 2026-05-06T00:00:00Z
