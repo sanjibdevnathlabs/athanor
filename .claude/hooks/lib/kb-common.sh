@@ -21,6 +21,36 @@ KB_STATE_DIR="${KB_STATE_DIR:-$KB_ROOT/.athanor/_state}"
 KB_STAGING_DIR="${KB_STAGING_DIR:-$KB_ROOT/.athanor/_staging}"
 KB_VOCAB_DIR="$KB_PROTOCOL_DIR/vocabulary"
 KB_SCHEMA_DIR="$KB_PROTOCOL_DIR/schema"
+# Vector layer (athanor-owned; SocratiCode removed). The corpus is the durable,
+# DB-independent backup; vec.sh is the single entry point to the vector DB.
+KB_CORPUS_DIR="${KB_CORPUS_DIR:-$KB_ROOT/.athanor/corpus}"
+KB_VEC="$KB_ROOT/.claude/hooks/lib/vec.sh"
+
+# ---------- Single-flight lock for vector-DB writes ----------
+# Serialises kb-index.sh / kb-reindex.sh so two collection ops can never overlap
+# (overlapping drop/create on a vector DB is what caused the Qdrant deadlock).
+# mkdir is atomic on every POSIX fs; flock is absent on macOS, so we don't use it.
+# Stale locks (holder PID dead) are reclaimed automatically.
+kb_vec_lock() {
+  # $1 = "wait" (poll up to ~30s) | "nowait" (default: fail immediately if held)
+  local mode="${1:-nowait}" lockd waited=0
+  lockd="$KB_STATE_DIR/vec-write.lock.d"
+  mkdir -p "$KB_STATE_DIR" 2>/dev/null || true
+  while ! mkdir "$lockd" 2>/dev/null; do
+    local opid; opid="$(cat "$lockd/pid" 2>/dev/null || echo '')"
+    if [ -n "$opid" ] && ! kill -0 "$opid" 2>/dev/null; then
+      rm -rf "$lockd" 2>/dev/null; continue   # holder is dead — reclaim
+    fi
+    if [ "$mode" = "wait" ] && [ "$waited" -lt 30 ]; then
+      sleep 1; waited=$((waited + 1)); continue
+    fi
+    return 1   # held by a live process and we won't wait
+  done
+  echo $$ > "$lockd/pid" 2>/dev/null || true
+  KB_VEC_LOCKD="$lockd"
+  return 0
+}
+kb_vec_unlock() { [ -n "${KB_VEC_LOCKD:-}" ] && rm -rf "$KB_VEC_LOCKD" 2>/dev/null; KB_VEC_LOCKD=""; }
 
 # ---------- ID hashing (deterministic, content-based) ----------
 kb_hash_id() {

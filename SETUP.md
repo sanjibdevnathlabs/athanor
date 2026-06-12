@@ -4,14 +4,17 @@ Get from zero to running in ~15 minutes.
 
 ## Prerequisites
 
-All four must be running before athanor works.
-
 | Dependency | Purpose | Default address |
 |---|---|---|
 | Neo4j | Knowledge graph (entities, relations, observations) | `bolt://localhost:7687` |
-| Qdrant | Vector search (semantic code/runbook retrieval) | `http://localhost:6333` |
-| Ollama | Local embeddings (required by SocratiCode) | `http://localhost:11434` |
+| Qdrant | Vector search (default driver; reached directly over REST) | `http://localhost:6333` |
+| Ollama | Embeddings (called directly by the in-repo `vec` layer) | `http://localhost:11434` |
+| Python 3.10+ | Runs the in-repo vector layer (`vec` package; auto-venv) | — |
 | Claude Code CLI | Hook execution, MCP tool routing | — |
+
+The vector half of athanor is **in-repo Python** (`.claude/hooks/lib/vec/`), driver-based
+(Qdrant today, ChromaDB pluggable). There is no SocratiCode and no vector MCP — athanor
+talks to Qdrant and Ollama directly. Configure it in `protocol/vector.config`.
 
 ### Neo4j
 
@@ -42,9 +45,9 @@ docker run -d \
 brew install ollama
 ollama serve &
 
-# Pull the embedding model SocratiCode is configured to use.
-# athanor does not pin a specific model — use whatever your SocratiCode setup
-# embeds with. Check `codebase_health`. Example (current default):
+# Pull the embedding model set in protocol/vector.config (VEC_EMBED_MODEL).
+# The model is configurable, not pinned — change it there (then rebuild) anytime.
+# Default:
 ollama pull qwen3-embedding:0.6b
 ```
 
@@ -94,21 +97,41 @@ Register globally (`~/.claude/mcp.json`) or per-project (`.mcp.json`):
 > Edit it directly (replace `_TODO` placeholders) OR delete it and use your global `~/.claude/mcp.json`.
 > Claude Code reads the project-local file first; leaving the stub in place prevents the MCP from loading.
 
-### 2. socraticode
+knowledge-graph is the **only** MCP athanor needs. The vector layer is not an MCP.
 
-SocratiCode is a Claude Code plugin (not a standalone npm package). Install via the Claude Code plugin marketplace:
+## Vector Layer Setup (in-repo, no MCP)
 
-```bash
-claude plugin install socraticode
+The vector layer lives at `.claude/hooks/lib/vec/` and is driven by `vec.sh`, which
+owns a self-bootstrapping virtualenv (single dependency: `httpx`). Configure it in
+`protocol/vector.config`:
+
+```
+VEC_DRIVER=qdrant                 # qdrant (live) | chromadb (stub)
+VEC_COLLECTION=athanor_kb
+VEC_DISTANCE=Cosine
+VEC_QDRANT_URL=http://localhost:6333
+VEC_EMBED_PROVIDER=ollama
+VEC_EMBED_URL=http://localhost:11434
+VEC_EMBED_MODEL=qwen3-embedding:0.6b   # any model your provider serves — configurable
 ```
 
-Or add its marketplace if it's in a private registry — see the SocratiCode README for the exact marketplace URL.
+Every key is overridable by an env var of the same name (env > file > built-in default).
 
-> **SocratiCode availability:** If SocratiCode is not publicly listed in the Claude Code marketplace,
-> install it from its source repo or ask your administrator. The recall system degrades gracefully
-> (graph-only recall) if SocratiCode is unavailable.
+One-time bootstrap + first build of the index:
 
-SocratiCode auto-discovers Qdrant at `localhost:6333` and Ollama at `localhost:11434`. No additional env vars needed for local installs.
+```bash
+# 1. Bootstrap the venv and confirm Qdrant + Ollama are reachable.
+bash .claude/hooks/lib/vec.sh health
+
+# 2. Capture existing on-disk digests/runbooks/skills into the immutable corpus,
+#    then build the Qdrant collection from it (--rebuild drops any existing collection).
+bash .claude/hooks/lib/kb-reindex.sh --backfill --rebuild
+```
+
+After this, `session-stop.sh` (distill) and the live "learn this" path keep the index
+current automatically via `kb-index.sh`. The corpus (`.athanor/corpus/*.ndjson`) is the
+durable, DB-independent backup — to switch driver or embedding model later, edit
+`vector.config` and re-run `kb-reindex.sh --rebuild`.
 
 ---
 
@@ -127,7 +150,11 @@ curl -s localhost:6333/collections | jq .
 
 # Ollama
 ollama list
-# Expected: the model SocratiCode embeds with (e.g. qwen3-embedding:0.6b)
+# Expected: the model in protocol/vector.config (e.g. qwen3-embedding:0.6b)
+
+# Vector layer (after venv bootstrap)
+bash .claude/hooks/lib/vec.sh health
+# Expected: driver(qdrant): OK ... ; embed(ollama): OK ...
 ```
 
 Then open Claude Code in this directory and run:
@@ -140,15 +167,15 @@ Expected output: KB stats panel (entities, relations, sessions distilled). If yo
 
 ### Index Context Artifacts
 
-Athanor's recall system uses SocratiCode to retrieve past runbooks, sessions, and skills.
-On first run, index the context artifacts:
+Athanor's recall retrieves past runbooks, sessions, and skills from the vector DB.
+On first run, build the index from the corpus (see "Vector Layer Setup" above):
 
-```
-/athanor
+```bash
+bash .claude/hooks/lib/kb-reindex.sh --backfill --rebuild
 ```
 
-Then in Claude Code: invoke the `codebase_context_index` tool against the athanor root.
-Or just start a session — the session-stop hook indexes artifacts automatically after the first distillation.
+After that it stays current automatically — the session-stop hook (and the live
+"learn this" path) call `kb-index.sh` after each distillation/capture.
 
 ---
 
@@ -201,6 +228,10 @@ Items must be resolved before the affected session's knowledge is committed.
 
 **Hooks don't fire** — Check `.claude/settings.json` has `hooks` block. Re-run `claude` from the repo root (not a parent dir).
 
-**SocratiCode search returns nothing** — Qdrant empty on first run. Index the codebase: `/socraticode:codebase-management`.
+**Recall returns no vector hits** — Qdrant empty on first run, or collection not built. Run `bash .claude/hooks/lib/kb-reindex.sh --backfill --rebuild`. Check reachability with `bash .claude/hooks/lib/vec.sh health`.
 
-**Distiller fails silently** — Check `.athanor/_state/` for error logs. Most common cause: Ollama not running when distiller tries to embed.
+**`vec.sh` errors / venv issues** — Delete `.claude/hooks/lib/vec/.venv` and re-run any `vec.sh` command; it rebuilds the venv. Needs Python 3.10+ on PATH (override with `VEC_PYTHON=/path/to/python3`).
+
+**Embedding-model drift warning in recall** — `vector.config` model differs from the model the collection was built with (`.athanor/_state/embeddings.lock`). Run `kb-reindex.sh --rebuild` to re-embed everything with the new model.
+
+**Distiller/index fails silently** — Check `.athanor/_state/hook-errors.jsonl`. Most common cause: Ollama or Qdrant not running when `kb-index.sh` tries to embed/upsert. The corpus still captured the write — a later `kb-reindex.sh` replays it.

@@ -9,7 +9,7 @@ Retrieve KB context for an investigation. Always use this skill before respondin
 
 ## When to invoke
 
-- User mentions a service name (matches `vocabulary/services.txt`)
+- User mentions a known service, component, or entity name (free-form — no closed vocabulary in v2)
 - User uses investigation language (latency, error, alert, oom, spike, etc.) — see `auto-orchestrate.sh` keyword list
 - User explicitly asks "have we seen X before"
 - Before drafting a runbook (to find existing related runbooks)

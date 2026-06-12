@@ -90,7 +90,7 @@ printf '%s' "$COMMIT_PROMPT" | ${TIMEOUT_CMD:+$TIMEOUT_CMD 300} \
   env -u ANTHROPIC_API_KEY claude --agent kb-committer \
     --print \
     --permission-mode bypassPermissions \
-    --allowedTools "Bash,Write,Edit,Read,Glob,Grep,mcp__knowledge-graph__create_entities,mcp__knowledge-graph__create_relations,mcp__knowledge-graph__add_observations,mcp__knowledge-graph__find_memories_by_name,mcp__knowledge-graph__search_memories,mcp__plugin_socraticode_socraticode__codebase_context_index" \
+    --allowedTools "Bash,Write,Edit,Read,Glob,Grep,mcp__knowledge-graph__create_entities,mcp__knowledge-graph__create_relations,mcp__knowledge-graph__add_observations,mcp__knowledge-graph__find_memories_by_name,mcp__knowledge-graph__search_memories" \
     > "$COMMIT_LOG" 2>&1 || true
 
 # Success signal: a digest landed for this LEARN_SID (committer writes it only on zero failures).
@@ -143,7 +143,12 @@ OUTCOME=""
 # process exits. Poll briefly (6×1s) before concluding "no outcome".
 for _try in 1 2 3 4 5 6; do
   if [ -f "$DECISIONS" ]; then
-    OUTCOME="$(grep -F "\"session_id\":\"$LEARN_SID\"" "$DECISIONS" 2>/dev/null | tail -1 | jq -r '.outcome // .decision // empty' 2>/dev/null)"
+    # Slurp the whole ledger as a JSON-value stream (robust to compact OR
+    # pretty-printed / multi-line objects), filter by session_id, take last.
+    # A line-oriented grep|tail|jq breaks the moment the supervisor writes
+    # indented JSON, which it does — the field is "session_id": "..." (with a
+    # space), and a multi-line object has no single greppable line.
+    OUTCOME="$(jq -rs --arg sid "$LEARN_SID" 'map(select(.session_id==$sid)) | last // {} | (.outcome // .decision // empty)' "$DECISIONS" 2>/dev/null)"
   fi
   [ -n "$OUTCOME" ] && break
   sleep 1

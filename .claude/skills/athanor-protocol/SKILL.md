@@ -1,6 +1,6 @@
 ---
 name: athanor-protocol
-description: MANDATORY rulebook for all athanor KB operations. Read this before any read/write to Neo4j knowledge graph or SocratiCode vector index. Defines schema, vocabulary, write/read protocols, idempotency, and version migrations. All distillers, supervisors, and the main agent must comply.
+description: MANDATORY rulebook for all athanor KB operations. Read this before any read/write to the Neo4j knowledge graph or the athanor-owned vector index (vec layer; SocratiCode removed). Defines schema, vocabulary, write/read protocols, idempotency, and version migrations. All distillers, supervisors, and the main agent must comply.
 ---
 
 # athanor-protocol
@@ -10,9 +10,9 @@ The single source of truth for KB operations. Wrappers in `.claude/hooks/lib/kb-
 ## TL;DR for agents
 
 - **Writes**: always through `kb-write-{entity,relation,observation}.sh`. Wrapper returns `ok:<id>` → then call `mcp__knowledge-graph__*`. Anything else → stop or route to HITL.
-- **Reads**: always through `kb-recall.sh` for the canonical plan, then execute steps with frozen merge weights.
+- **Reads**: always through `kb-recall.sh` for the canonical plan. It runs the vector passes inline (`vector_results`) and emits the residual graph steps; rank with the frozen scoring rubric.
 - **Vocabulary**: closed sets at `protocol/vocabulary/`. Missing term → append to `_state/pending-vocab-additions.json`, do NOT invent.
-- **Embedding model**: NOT pinned by athanor. SocratiCode owns embedding (one model for index + query → consistent by construction). Change the model → re-index all artifacts via `codebase_context_index`.
+- **Embedding model**: athanor-owned and configurable (`protocol/vector.config` / `VEC_EMBED_MODEL`), NOT pinned. `vec.sh` uses one model for index + query → consistent by construction. Change the model → `bash .claude/hooks/lib/kb-reindex.sh --rebuild` (re-embed from corpus).
 
 ## Write protocol (entity)
 
@@ -72,7 +72,7 @@ bash .claude/hooks/lib/kb-recall.sh "high latency on care service"
 ```
 
 Returns a JSON plan with:
-1. Three `codebase_context_search` calls (runbooks, sessions, skills artifacts)
+1. `vector_results` — the three vector passes (runbooks, sessions, skills) ALREADY run inline against the active driver; you don't call any vector tool
 2. One `mcp__knowledge-graph__search_memories` call
 3. One `mcp__knowledge-graph__find_memories_by_name` 1-hop expansion
 4. One disputed-entity filter step (excludes any entity that is the *subject* of a `DISPUTED_BY` relation before scoring; the relation is set by the supervisor and review agents when an entity is flagged wrong)

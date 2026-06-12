@@ -29,8 +29,7 @@
       "mcp__knowledge-graph__create_relations",
       "mcp__knowledge-graph__add_observations",
       "mcp__knowledge-graph__find_memories_by_name",
-      "mcp__knowledge-graph__search_memories",
-      "mcp__plugin_socraticode_socraticode__codebase_context_index"
+      "mcp__knowledge-graph__search_memories"
     ]
   },
   "hooks": {
@@ -87,7 +86,7 @@
           {
             "type": "command",
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/auto-orchestrate.sh",
-            "timeout": 3
+            "timeout": 15
           }
         ]
       }

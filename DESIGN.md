@@ -22,7 +22,7 @@ The supervisor is forbidden from reading the distiller's prompt. If they shared 
 
 The distiller runs as a read-only extraction agent: it reads the transcript, runs every candidate through `kb-write-*.sh` wrappers (schema validation, vocab check, idempotency), and stages approved artifacts to `_staging/<sid>/manifest.jsonl`. It never touches Neo4j directly.
 
-A separate kb-committer agent reads the prepared, sorted manifest and performs all graph writes. It runs `mcp__knowledge-graph__create_entities/relations/observations` in dependency order (entities first, then relations, then observations), writes `committed-ids.jsonl`, writes the session digest, runs the `codebase_context_index` for Qdrant, and performs confidence promotion.
+A separate kb-committer agent reads the prepared, sorted manifest and performs all graph writes. It runs `mcp__knowledge-graph__create_entities/relations/observations` in dependency order (entities first, then relations, then observations), writes `committed-ids.jsonl`, writes the session digest, runs `kb-index.sh` (corpus append → embed → upsert into the active vector driver), and performs confidence promotion.
 
 The supervisor runs after the digest exists, reads the transcript + what was committed, and flags issues to the HITL queue.
 
@@ -41,11 +41,11 @@ Open vocabulary causes KB drift: "payment-service", "payments", "the-payment-svc
 
 New terms go to `.athanor/_state/pending-vocab-additions.json` and are approved via `/athanor vocab-extend`. Agents never invent vocabulary mid-session.
 
-### Frozen recall weights (0.50 / 0.30 / 0.15 / 0.05)
+### Frozen recall ranking (additive scoring rubric)
 
-Weights: vector similarity 0.50, graph proximity 0.30, confidence tier 0.15, recency 0.05.
+Recall ranking is a fixed 0–10 additive rubric over result metadata (service match +4, finding-category match +3, resolved procedure +2, recent session +1, top-3 vector hit +2, graph direct hit +2) — see `protocol/recall-algorithm.md`. It replaced an earlier weighted merge formula (0.50/0.30/0.15/0.05) that required reading artifact frontmatter and normalising incomparable vector/graph scores; the rubric needs neither.
 
-If weights are tunable per-session, recall output changes between sessions for the same query. Two sessions debugging the same symptom would retrieve different context. Determinism is a feature. Weights were set empirically against the eval suite; changing them requires a protocol bump with a migration script.
+If ranking is tunable per-session, recall output changes between sessions for the same query. Two sessions debugging the same symptom would retrieve different context. Determinism is a feature. The rubric is frozen; changing it requires a protocol bump with a migration script.
 
 ### Confidence ladder (unverified → tested → autonomous)
 
@@ -103,7 +103,8 @@ The distill cursor (`distill-cursor.json`) is written by `session-stop.sh` (not 
 
 See `SETUP.md`. Required:
 - **Neo4j** — knowledge-graph MCP server (`mcp__knowledge-graph__*`)
-- **Qdrant + Ollama** — SocratiCode MCP server for vector search
+- **Qdrant** — vector DB (the default driver), reached directly over REST by the in-repo `vec` package — no MCP
+- **Ollama** — embeddings, called directly by `vec` (model set in `protocol/vector.config`)
 - **Claude Code CLI** — with hooks registered in `.claude/settings.json`
 
-All three must be reachable before hooks will function. The `session-start.sh` hook performs a health check and logs failures to `.athanor/_state/health-score.json`.
+The graph + vector backends must be reachable for full function, but recall and capture degrade gracefully when the vector layer is down (graph-only recall; corpus still captures writes for later replay). The `session-start.sh` hook performs a health check and logs failures to `.athanor/_state/health-score.json`.

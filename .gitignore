@@ -10,6 +10,11 @@ memory_bank/
 # Runbooks belong at .athanor/runbooks/, not the repo root
 runbooks/
 
+# Vector layer Python runtime — venv + caches (the package source IS committed)
+.claude/hooks/lib/vec/.venv/
+.claude/hooks/lib/vec/**/__pycache__/
+*.pyc
+
 # OS / editor
 .DS_Store
 *.swp
@@ -20,3 +25,7 @@ runbooks/
 
 # Domain-specific overlay — environment config, never committed
 CLAUDE.local.md
+
+.serena/
+.mcp.json
+CLAUDE.md

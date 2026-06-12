@@ -11,11 +11,11 @@ reference from `CLAUDE.md` or paste the relevant sections directly into `CLAUDE.
 
 ---
 
-## Currently Indexed Codebases
+## Known Codebases (source map)
 
-The codebases listed below sit under a parent workspace container directory (one level up from this repo). Never pass that container directory as `projectPath` to `codebase_search` — always resolve to the specific sub-project.
+The codebases listed below sit under a parent workspace container directory (one level up from this repo). This table is a map of what each service owns — handy when an investigation spans services.
 
-All sub-projects below are independently indexed in SocratiCode. Use `codebase_search(query, projectPath)` to trace anything into source code — incidents, exploration, refactor planning, anything. Search multiple projects in parallel when the question spans services. New codebases get added to this list as they're encountered.
+Athanor's vector layer indexes only its OWN KB artifacts (runbooks, sessions, skills), not arbitrary source code — SocratiCode and `codebase_search` have been removed. To trace into the source of any service below, use standard code-search tooling (ripgrep, LSP, your IDE) at the listed path. New codebases get added to this list as they're encountered.
 
 ### Go Services
 
@@ -102,6 +102,15 @@ These MCP servers are examples of what can be wired up. New domains add their ow
 - **Slack** (`mcp__slack-mcp__*`) — search messages, read channels, post updates.
   - Use `slack_search_messages` to find prior incident threads before starting investigation.
   - Use `slack_send_message` to post updates to incident channels.
+
+### Product / Project Tracking
+- **DevRev** (`mcp__devrev__*`) — work items (issues/tickets), parts (enhancements), sprints/vistas, timeline entries. Read + write. Configure project-scoped in `.mcp.json` (run via `uvx devrev-mcp`, auth from a `DEVREV_API_KEY` env var) rather than globally.
+  - `get_current_user` — resolve the authenticated dev user (and your owner ID for filters)
+  - `list_works` / `get_work` — query issues/tickets, filterable by owner, sprint, applies-to-part
+  - `get_vista` / `get_sprints` — sprint-board + sprint metadata (decode a board URL's `vista` / `vista_group_item` IDs)
+  - `create_work` / `update_work` — create/update work items
+  - `search` — cross-object DevRev search
+  - Caveat: the MCP exposes only a subset of `works.create`/`works.update` fields. For `priority`, `estimated_effort`, `custom_fields`, or `stage_validation_options`, call the raw DevRev REST API (`POST https://api.devrev.ai/works.update`, `Bearer` auth) instead.
 
 ## Key Conventions
 

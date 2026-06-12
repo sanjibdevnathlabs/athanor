@@ -1,6 +1,6 @@
 ---
 name: athanor-learn
-description: On-demand "learn this" — capture a user-stated offline fact into the KB through the FULL pipeline (graph + qdrant + digest + supervisor audit), the same backend the Stop-hook distiller uses, but fired immediately mid-session. Triggered ONLY by an explicit user learn signal. Supersedes the old graph-only live-graph-writes path.
+description: On-demand "learn this" — capture a user-stated offline fact into the KB through the FULL pipeline (graph + vector index + digest + supervisor audit), the same backend the Stop-hook distiller uses, but fired immediately mid-session. Triggered ONLY by an explicit user learn signal. Supersedes the old graph-only live-graph-writes path.
 ---
 
 # athanor-learn
@@ -53,12 +53,14 @@ export KB_SESSION_ID="$LEARN_SID"
 
 Entities and the Session before relations (relations reject if an endpoint isn't staged yet), observations last.
 
+**Set `"confidence":"tested"` on every staged entity.** A learn capture is user-asserted (the user is ground truth, not an LLM guess) AND runs through the supervisor in step 4 — which is exactly the `unverified → tested` promotion bar in `athanor-supervision` (uses ≥ 1, supervisor approved, no correction). Omitting the field makes the committer default it to the floor tier `unverified` (correct for the distiller's LLM-extracted facts, wrong here), so recall surfaces authoritative identity/ownership facts as "unverified". Do NOT use `autonomous` — that tier is for system-proven-across-sessions, not a single assertion.
+
 Entity:
 ```bash
-echo '{"entity_type":"Concept","canonical_name":"abc-api","source_session_id":"'"$LEARN_SID"'","created_at":"<ISO8601Z>","domain":"software-engineering"}' \
+echo '{"entity_type":"Concept","canonical_name":"abc-api","source_session_id":"'"$LEARN_SID"'","created_at":"<ISO8601Z>","domain":"software-engineering","confidence":"tested"}' \
   | bash .claude/hooks/lib/kb-write-entity.sh
 ```
-Finding adds `"summary":"…"` (10–500 chars). Session adds `"session_id":"$LEARN_SID","occurred_at":"<ISO>","outcome":"completed","summary":"…"`.
+Finding adds `"summary":"…"` (10–500 chars). Session adds `"session_id":"$LEARN_SID","occurred_at":"<ISO>","outcome":"completed","summary":"…"`. All carry `"confidence":"tested"`.
 
 Relation (neutral link; the Finding summary holds the actual requirement):
 ```bash
@@ -89,7 +91,7 @@ Do NOT call `mcp__knowledge-graph__*` yourself. The committer does all graph wri
 bash .claude/hooks/lib/kb-learn-commit.sh "$LEARN_SID" "$LIVE_SID"
 ```
 
-This prepares the manifest, checks the kill switch, spawns `kb-committer` (graph + confidence ledger + digest + Qdrant index), writes the `learned-ids` marker for the end-of-session distiller, then spawns `distillation-supervisor` for an adversarial audit (non-approve → HITL flag). It never touches the live session's distill cursor/pending.
+This prepares the manifest, checks the kill switch, spawns `kb-committer` (graph + confidence ledger + digest + vector index via `kb-index.sh`), writes the `learned-ids` marker for the end-of-session distiller, then spawns `distillation-supervisor` for an adversarial audit (non-approve → HITL flag). It never touches the live session's distill cursor/pending.
 
 ### 5. Confirm to the user — ONE line
 

@@ -196,39 +196,15 @@ GLOBAL_LOCK="$STATE/distill-global.lock"
 printf '{"pid":%s,"session_id":"%s","ts":"%s"}\n' "$$" "$SESSION_ID" "$(date -u +%FT%TZ)" > "$GLOBAL_LOCK"
 
 # ── Track pending distillation durably (Bug H3) ──
-# Record this session as pending BEFORE spawning the distiller so a crashed
-# distiller leaves a recoverable trail. Removed on confirmed success below.
+# The attempt counter + max-retries guard live INSIDE the per-session mkdir lock
+# (in the background subshell below), NOT here. Incrementing the counter before
+# the lock burned a retry on every skip — and the most common "skip" was not even
+# contention but a plain `mkdir "$LOCK_DIR"` failure when the staging parent dir
+# didn't exist yet (misreported as already-locked). A few Stop fires then falsely
+# quarantined a session that had never actually distilled. The mkdir lock is the
+# real mutex; the foreground GLOBAL_LOCK file-write never serialized anything.
+# Only define the path here; the counter is read + bumped under the lock.
 PENDING_FILE="$STATE/distill-pending.jsonl"
-# Fix 7: retry counter for partial commits. Read prior attempts (if a pending
-# entry already exists for this session) and increment.
-EXISTING_ATTEMPTS=$(grep -F "\"session_id\":\"$SESSION_ID\"" "$PENDING_FILE" 2>/dev/null | tail -1 | jq -r '.attempts // 0' 2>/dev/null || echo 0)
-NEW_ATTEMPTS=$((EXISTING_ATTEMPTS + 1))
-printf '{"ts":"%s","session_id":"%s","transcript":"%s","attempts":%s}\n' \
-  "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$SESSION_ID" "$DISTILL_SRC" "$NEW_ATTEMPTS" \
-  >> "$PENDING_FILE"
-
-# Fix 7: max-retries guard. If this session has already been attempted >= 3
-# times, do NOT re-spawn the pipeline. Quarantine and enqueue HITL instead.
-if [ "$NEW_ATTEMPTS" -ge 3 ]; then
-  TS_NOW="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-  QUAR_BASE="$ROOT/.athanor/_quarantine"
-  QUAR_DEST="$QUAR_BASE/${SESSION_ID}-max-retries"
-  mkdir -p "$QUAR_BASE"
-  if [ -d "$ROOT/.athanor/_staging/$SESSION_ID" ]; then
-    mv "$ROOT/.athanor/_staging/$SESSION_ID" "$QUAR_DEST" 2>/dev/null || true
-  fi
-  jq -n \
-    --arg ts "$TS_NOW" \
-    --arg type "max_retries_exceeded" \
-    --arg session_id "$SESSION_ID" \
-    --arg reason "max-retries-exceeded" \
-    --arg manifest_path "$QUAR_DEST/manifest.jsonl" \
-    -c '{ts:$ts, type:$type, session_id:$session_id, reason:$reason, manifest_path:$manifest_path}' \
-    >> "$STATE/hitl-queue.jsonl" 2>/dev/null || true
-  printf '{"ts":"%s","event":"distill-skip-max-retries","attempts":%s,"session_id":"%s"}\n' \
-    "$TS_NOW" "$NEW_ATTEMPTS" "$SESSION_ID" >> "$ERR_LOG"
-  exit 0
-fi
 
 # P2 pipeline: distiller → supervisor → commit-or-quarantine.
 # Global lock was already acquired above (Fix 4) before the attempt-counter read;
@@ -239,6 +215,12 @@ DISTILL_LOG="$STATE/last-distill.log"
 SUPER_LOG="$STATE/last-supervisor.log"
 {
   # ── Guard 4: mkdir-based lock per session (atomic on POSIX, no flock needed) ──
+  # The lock dir is nested under the per-session staging dir, which does not
+  # exist until the distiller stages its first artifact. Create the parent first
+  # so the atomic `mkdir "$LOCK_DIR"` actually tests lock ownership instead of
+  # failing on a missing parent (which the else-branch below would misreport as
+  # already-locked, silently skipping the distiller on every fresh session).
+  mkdir -p "$ROOT/.athanor/_staging/$SESSION_ID" 2>/dev/null || true
   LOCK_DIR="$ROOT/.athanor/_staging/$SESSION_ID/.distill.lock"
   if ! mkdir "$LOCK_DIR" 2>/dev/null; then
     # Lock exists — check for stale lock (PID file inside, process dead = stale)
@@ -271,6 +253,42 @@ SUPER_LOG="$STATE/last-supervisor.log"
   # GLOBAL_LOCK orphaned.
   trap 'rm -rf "${LOCK_DIR:-}"; rm -f "${GLOBAL_LOCK:-}"; rm -f "${COMMITTER_SENTINEL:-}"' EXIT TERM INT
 
+  # ── Attempt counter + max-retries guard (INSIDE the lock) ──
+  # We hold the per-session lock, so this is a genuine distill attempt, not a
+  # contended/missing-parent skip (those exit above without reaching here). Read
+  # prior attempts, increment, persist BEFORE spawning the distiller so a crash
+  # leaves a recoverable trail. Lock contention can no longer burn the retry
+  # budget — it is spent only on real attempts.
+  EXISTING_ATTEMPTS=$(grep -F "\"session_id\":\"$SESSION_ID\"" "$PENDING_FILE" 2>/dev/null | tail -1 | jq -r '.attempts // 0' 2>/dev/null || echo 0)
+  NEW_ATTEMPTS=$((EXISTING_ATTEMPTS + 1))
+  printf '{"ts":"%s","session_id":"%s","transcript":"%s","attempts":%s}\n' \
+    "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$SESSION_ID" "$DISTILL_SRC" "$NEW_ATTEMPTS" \
+    >> "$PENDING_FILE"
+
+  # Max-retries guard: >= 3 real attempts → do NOT re-spawn. Quarantine staging +
+  # enqueue HITL. The EXIT trap releases the lock (and removes the moved LOCK_DIR
+  # path harmlessly).
+  if [ "$NEW_ATTEMPTS" -ge 3 ]; then
+    TS_NOW="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    QUAR_BASE="$ROOT/.athanor/_quarantine"
+    QUAR_DEST="$QUAR_BASE/${SESSION_ID}-max-retries"
+    mkdir -p "$QUAR_BASE"
+    if [ -d "$ROOT/.athanor/_staging/$SESSION_ID" ]; then
+      mv "$ROOT/.athanor/_staging/$SESSION_ID" "$QUAR_DEST" 2>/dev/null || true
+    fi
+    jq -n \
+      --arg ts "$TS_NOW" \
+      --arg type "max_retries_exceeded" \
+      --arg session_id "$SESSION_ID" \
+      --arg reason "max-retries-exceeded" \
+      --arg manifest_path "$QUAR_DEST/manifest.jsonl" \
+      -c '{ts:$ts, type:$type, session_id:$session_id, reason:$reason, manifest_path:$manifest_path}' \
+      >> "$STATE/hitl-queue.jsonl" 2>/dev/null || true
+    printf '{"ts":"%s","event":"distill-skip-max-retries","attempts":%s,"session_id":"%s"}\n' \
+      "$TS_NOW" "$NEW_ATTEMPTS" "$SESSION_ID" >> "$ERR_LOG"
+    exit 0
+  fi
+
   if command -v claude >/dev/null 2>&1; then
     cd "$ROOT" || exit 0
 
@@ -289,10 +307,15 @@ SUPER_LOG="$STATE/last-supervisor.log"
     else
       printf '{"ts":"%s","hook":"session-stop","note":"distill-spawn","session_id":"%s","src":"%s","precompact_used":"%s"}\n' \
         "$(date -u +%FT%TZ)" "$SESSION_ID" "$DISTILL_SRC" "$PRECOMPACT_USED" >> "$ERR_LOG"
-      if ! ${TIMEOUT_CMD:+$TIMEOUT_CMD 600} claude --agent session-distiller --print \
+      DISTILL_PROMPT="Distill session $SESSION_ID from transcript at $DISTILL_SRC. Stage all extracted artifacts via the kb-write-*.sh wrappers. Do NOT call mcp__knowledge-graph__create_entities, create_relations, or add_observations — the kb-committer handles all Neo4j commits after you exit. Your job ends when the staging manifest is complete."
+      # Prompt piped via stdin (robust): a trailing positional prompt is silently
+      # dropped because the variadic --allowedTools <tools...> flag swallows it
+      # (commander.js), leaving claude --print with no input. env -u ANTHROPIC_API_KEY
+      # forces the nested claude to use the OAuth session creds. Mirrors kb-learn-commit.sh.
+      if ! printf '%s' "$DISTILL_PROMPT" | ${TIMEOUT_CMD:+$TIMEOUT_CMD 600} \
+        env -u ANTHROPIC_API_KEY claude --agent session-distiller --print \
         --permission-mode acceptEdits \
-        --allowedTools "Bash Write Edit Read Glob Grep mcp__knowledge-graph__find_memories_by_name mcp__knowledge-graph__search_memories mcp__plugin_socraticode_socraticode__codebase_context_index" \
-        "Distill session $SESSION_ID from transcript at $DISTILL_SRC. Stage all extracted artifacts via the kb-write-*.sh wrappers. Do NOT call mcp__knowledge-graph__create_entities, create_relations, or add_observations — the kb-committer handles all Neo4j commits after you exit. Your job ends when the staging manifest is complete." \
+        --allowedTools "Bash Write Edit Read Glob Grep mcp__knowledge-graph__find_memories_by_name mcp__knowledge-graph__search_memories" \
         > "$DISTILL_LOG" 2>&1; then
         # Distiller exited non-zero — leave pending entry in place for retry/visibility.
         printf '{"ts":"%s","event":"distill-failed","session_id":"%s"}\n' \
@@ -350,12 +373,13 @@ SUPER_LOG="$STATE/last-supervisor.log"
       # symlink at startup, so bypass-detector's session-manifest check resolves
       # the correct manifest without any shared state.
 
-      ${TIMEOUT_CMD:+$TIMEOUT_CMD 600} \
-        claude --agent kb-committer \
+      COMMIT_PROMPT="Commit staged manifest for session $SESSION_ID. Manifest: $COMMIT_MANIFEST. KB_ROOT: $ROOT. KB_SESSION_ID: $SESSION_ID. The manifest has already been sorted (entities → relations → observations) and validated by kb-prepare-commit.sh — read it directly, no sorting or validation needed. Source $ROOT/.claude/hooks/lib/kb-common.sh for helpers."
+      # Prompt via stdin + env -u ANTHROPIC_API_KEY (see distiller spawn note above).
+      printf '%s' "$COMMIT_PROMPT" | ${TIMEOUT_CMD:+$TIMEOUT_CMD 600} \
+        env -u ANTHROPIC_API_KEY claude --agent kb-committer \
           --print \
           --permission-mode bypassPermissions \
-          --allowedTools "Bash,Write,Edit,Read,Glob,Grep,mcp__knowledge-graph__create_entities,mcp__knowledge-graph__create_relations,mcp__knowledge-graph__add_observations,mcp__knowledge-graph__find_memories_by_name,mcp__knowledge-graph__search_memories,mcp__plugin_socraticode_socraticode__codebase_context_index" \
-          "Commit staged manifest for session $SESSION_ID. Manifest: $COMMIT_MANIFEST. KB_ROOT: $ROOT. KB_SESSION_ID: $SESSION_ID. The manifest has already been sorted (entities → relations → observations) and validated by kb-prepare-commit.sh — read it directly, no sorting or validation needed. Source $ROOT/.claude/hooks/lib/kb-common.sh for helpers." \
+          --allowedTools "Bash,Write,Edit,Read,Glob,Grep,mcp__knowledge-graph__create_entities,mcp__knowledge-graph__create_relations,mcp__knowledge-graph__add_observations,mcp__knowledge-graph__find_memories_by_name,mcp__knowledge-graph__search_memories" \
           > "$COMMIT_LOG" 2>&1 || true
 
       printf '{"ts":"%s","event":"commit-done","session_id":"%s"}\n' \
@@ -400,10 +424,12 @@ SUPER_LOG="$STATE/last-supervisor.log"
     # above, so gating the audit on auto_commit would skip the audit while still
     # committing (semantically backwards). The audit always runs after a commit.
     if [ -f "$ROOT/.athanor/_staging/$SESSION_ID/manifest.jsonl" ]; then
-      ${TIMEOUT_CMD:+$TIMEOUT_CMD 600} claude --agent distillation-supervisor --print \
+      SUPER_PROMPT="Supervise session $SESSION_ID. Transcript: $DISTILL_SRC. Manifest (the prepared manifest the kb-committer actually consumed): .athanor/_staging/$SESSION_ID/manifest-prepared.jsonl. The raw pre-preparation manifest is also available at .athanor/_staging/$SESSION_ID/manifest.jsonl — diff raw vs prepared if you suspect preparation dropped or altered records. Decide approve|reject|revise|escalate per athanor-supervision/SKILL.md. The kb-committer has committed all staged records to the graph. The distiller only staged artifacts via wrappers. Your role is to audit what the kb-committer committed against the original transcript. On approve, call supervisor-gate.sh approve and append your decision to .athanor/_state/supervisor-decisions.jsonl. On reject, call supervisor-gate.sh reject with reason. On revise or escalate, append your outcome to .athanor/_state/supervisor-decisions.jsonl with a 'outcome' field set to 'revise' or 'escalate'."
+      # Prompt via stdin + env -u ANTHROPIC_API_KEY (see distiller spawn note above).
+      printf '%s' "$SUPER_PROMPT" | ${TIMEOUT_CMD:+$TIMEOUT_CMD 600} \
+        env -u ANTHROPIC_API_KEY claude --agent distillation-supervisor --print \
         --permission-mode acceptEdits \
         --allowedTools "Bash Write Read Glob Grep mcp__knowledge-graph__search_memories mcp__knowledge-graph__find_memories_by_name mcp__knowledge-graph__read_graph" \
-        "Supervise session $SESSION_ID. Transcript: $DISTILL_SRC. Manifest (the prepared manifest the kb-committer actually consumed): .athanor/_staging/$SESSION_ID/manifest-prepared.jsonl. The raw pre-preparation manifest is also available at .athanor/_staging/$SESSION_ID/manifest.jsonl — diff raw vs prepared if you suspect preparation dropped or altered records. Decide approve|reject|revise|escalate per athanor-supervision/SKILL.md. The kb-committer has committed all staged records to the graph. The distiller only staged artifacts via wrappers. Your role is to audit what the kb-committer committed against the original transcript. On approve, call supervisor-gate.sh approve and append your decision to .athanor/_state/supervisor-decisions.jsonl. On reject, call supervisor-gate.sh reject with reason. On revise or escalate, append your outcome to .athanor/_state/supervisor-decisions.jsonl with a 'outcome' field set to 'revise' or 'escalate'." \
         > "$SUPER_LOG" 2>&1 || true
 
       # ── Read supervisor outcome and act (Bug H1, H5) ──
@@ -417,7 +443,10 @@ SUPER_LOG="$STATE/last-supervisor.log"
       if [ -f "$DECISIONS_FILE" ]; then
         # Fix 5: scope to THIS session_id instead of a blind tail -1 (a concurrent
         # pipeline's decision could otherwise be read as this session's outcome).
-        SUPER_OUTCOME=$(grep -F "\"session_id\":\"$SESSION_ID\"" "$DECISIONS_FILE" 2>/dev/null | tail -1 | jq -r '.outcome // .decision // empty' 2>/dev/null)
+        # Slurp the ledger as a JSON-value stream so a pretty-printed / multi-line
+        # supervisor decision still parses — a grep|tail|jq line-parse silently
+        # returns empty on indented JSON and falsely reports "no outcome".
+        SUPER_OUTCOME=$(jq -rs --arg sid "$SESSION_ID" 'map(select(.session_id==$sid)) | last // {} | (.outcome // .decision // empty)' "$DECISIONS_FILE" 2>/dev/null)
       fi
 
       case "$SUPER_OUTCOME" in

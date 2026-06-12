@@ -1,8 +1,8 @@
 ---
 name: kb-committer
-description: Intelligent KB committer. Receives a staging manifest path and session ID from session-stop.sh. Reads and understands the full manifest, then commits all staged records to Neo4j (knowledge graph) and indexes artifacts into Qdrant (SocratiCode). Has full judgment over HOW to commit — ordering, conflict resolution, retry logic, enrichment from manifest context — but ONLY commits what is in the manifest. Never reads the session transcript. Never calls kb-write-*.sh wrappers. Never triggers supervisor or session-stop logic.
+description: Intelligent KB committer. Receives a staging manifest path and session ID from session-stop.sh. Reads and understands the full manifest, then commits all staged records to Neo4j (knowledge graph) and indexes artifacts into the vector DB via kb-index.sh. Has full judgment over HOW to commit — ordering, conflict resolution, retry logic, enrichment from manifest context — but ONLY commits what is in the manifest. Never reads the session transcript. Never calls kb-write-*.sh wrappers. Never triggers supervisor or session-stop logic.
 model: sonnet
-tools: mcp__knowledge-graph__create_entities, mcp__knowledge-graph__create_relations, mcp__knowledge-graph__add_observations, mcp__knowledge-graph__find_memories_by_name, mcp__knowledge-graph__search_memories, mcp__plugin_socraticode_socraticode__codebase_context_index, Bash, Read, Write
+tools: mcp__knowledge-graph__create_entities, mcp__knowledge-graph__create_relations, mcp__knowledge-graph__add_observations, mcp__knowledge-graph__find_memories_by_name, mcp__knowledge-graph__search_memories, Bash, Read, Write
 ---
 
 # KB Committer
@@ -282,15 +282,17 @@ Fill the body from what you actually committed (counts and names you accumulated
 
 Keep the "Key findings" line grounded in the manifest content — summaries, symptom descriptions, and observation text you committed are fair game; speculation is not.
 
-## Step 6 — Index into Qdrant
+## Step 6 — Index into the vector DB
 
-Refresh the SocratiCode vector index so the new runbooks and the session digest you just wrote become searchable. Call:
+Refresh the vector index so the runbooks and the session digest you just wrote become searchable. Athanor owns its vector layer now (SocratiCode is gone). Run the single index entry point via Bash:
 
+```bash
+bash "$KB_ROOT/.claude/hooks/lib/kb-index.sh"
 ```
-mcp__plugin_socraticode_socraticode__codebase_context_index  with  projectPath: "$KB_ROOT"
-```
 
-If indexing reports an error, log it to `$KB_STATE_DIR/hook-errors.jsonl` but still proceed to report — the graph commit is the primary durable outcome and must not be masked by an index hiccup.
+This appends any new/changed digest, runbook, or skill to the immutable corpus (`.athanor/corpus/`, the DB-independent backup), embeds only what changed, and upserts it into the active driver. The corpus append is the durable part — even if the embed/upsert leg fails (Qdrant/Ollama down), the knowledge is already captured and a later `kb-reindex.sh` will replay it.
+
+If `kb-index.sh` exits non-zero, it has already logged to `$KB_STATE_DIR/hook-errors.jsonl`. Note it in your report but do NOT fail the commit — the graph commit + corpus append are the primary durable outcomes and must not be masked by a vector-DB hiccup.
 
 ## Step 7 — Report
 
@@ -319,4 +321,4 @@ Adjust the tail of the line to reflect reality — e.g. `→ digest written → 
 - **Never call the `kb-write-*.sh` wrappers.** Validation already happened upstream; calling them again would re-stage, not commit.
 - **Never touch `distill-cursor.json`.** session-stop.sh owns the distill cursor.
 - **Never spawn or signal another agent**, and never invoke supervisor or session-stop logic.
-- **Never write to `_staging/` or `_quarantine/`.** Your writes go only to Neo4j, Qdrant, the committed-ids ledger (via `kb_record_commit`), the confidence ledger (`confidence-ledger.json`, Step 4b), the session digest, and — on errors — `hook-errors.jsonl`.
+- **Never write to `_staging/` or `_quarantine/`.** Your writes go only to Neo4j, the vector DB + corpus (indirectly, via `kb-index.sh`), the committed-ids ledger (via `kb_record_commit`), the confidence ledger (`confidence-ledger.json`, Step 4b), the session digest, and — on errors — `hook-errors.jsonl`.

@@ -1,0 +1,4 @@
+# athanor vector layer — runtime deps. Deliberately minimal.
+# Drivers talk to Qdrant over plain REST; embeddings over Ollama's HTTP API.
+# One dependency: an HTTP client. No qdrant-client / grpc / chromadb pulled in.
+httpx==0.28.1

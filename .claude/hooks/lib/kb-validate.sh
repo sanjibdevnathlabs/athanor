@@ -36,7 +36,9 @@ check "vocabulary/entity-types.txt"     test -f "$KB_VOCAB_DIR/entity-types.txt"
 check "vocabulary/relations.txt"        test -f "$KB_VOCAB_DIR/relations.txt"
 check "vocabulary/confidence-tiers.txt" test -f "$KB_VOCAB_DIR/confidence-tiers.txt"
 check "vocabulary/session-outcomes.txt" test -f "$KB_VOCAB_DIR/session-outcomes.txt"
-check "embeddings.lock"          test -f "$KB_PROTOCOL_DIR/embeddings.lock"
+check "vector.config"            test -f "$KB_PROTOCOL_DIR/vector.config"
+check "vec package (cli.py)"     test -f "$KB_ROOT/.claude/hooks/lib/vec/cli.py"
+check "vec.sh dispatcher"        test -f "$KB_VEC"
 check "recall-algorithm.md"      test -f "$KB_PROTOCOL_DIR/recall-algorithm.md"
 
 # Vocabulary files must be non-empty (≥1 non-comment, non-blank line).
@@ -87,6 +89,15 @@ echo "  hitl queue: $HITL_COUNT"
 echo "  digests:    $DISTILLED_COUNT"
 echo "  runbooks:   $RUNBOOK_COUNT"
 echo "  skills:     $SKILL_COUNT"
+CORPUS_DOCS="$(find "$KB_CORPUS_DIR" -maxdepth 1 -name '*.ndjson' -type f -exec cat {} + 2>/dev/null | wc -l | tr -d ' ' || echo 0)"
+echo "  corpus recs:$CORPUS_DOCS"
+if [ -f "$KB_STATE_DIR/embeddings.lock" ]; then
+  LOCK_MODEL="$(jq -r '.embedding_model // "?"' "$KB_STATE_DIR/embeddings.lock" 2>/dev/null)"
+  LOCK_DIM="$(jq -r '.embedding_dim // "?"' "$KB_STATE_DIR/embeddings.lock" 2>/dev/null)"
+  echo "  vec lock:   $LOCK_MODEL (dim $LOCK_DIM)"
+else
+  echo "  vec lock:   (none — collection not built yet; run kb-reindex.sh --rebuild)"
+fi
 
 echo
 printf 'Result: %d ok, %d fail\n' "$ok" "$fail"

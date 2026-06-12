@@ -2,12 +2,15 @@
 
 `athanor` is a universal second brain for any topic — coding, research, product,
 oncall, writing, anything. This protocol governs every read/write to its
-knowledge base (Neo4j graph + SocratiCode/Qdrant vector index + filesystem).
+knowledge base (Neo4j graph + an athanor-owned, driver-based vector index +
+filesystem). The vector layer is `.claude/hooks/lib/vec/` (Qdrant today,
+ChromaDB pluggable); SocratiCode has been removed.
 
 **MANDATORY**: ALL agents (distiller, supervisor, main agent) MUST follow this
 protocol. Wrapper scripts at `.claude/hooks/lib/kb-*.sh` enforce it at runtime.
-Direct calls to `mcp__knowledge-graph__*` or `codebase_context_search` from any
-agent are protocol violations.
+Direct calls to `mcp__knowledge-graph__*`, or to the vector layer except through
+`kb-recall.sh` / `kb-index.sh` / `kb-reindex.sh`, from any agent are protocol
+violations.
 
 ## Why
 
@@ -17,7 +20,7 @@ drift, observation-phrasing drift. The KB rots into noise within weeks. This
 protocol locks the shape so the same prompt produces semantically equivalent
 output across sessions and models.
 
-## The 8 layers
+## The 9 layers
 
 | Layer | What | Where |
 |---|---|---|
@@ -26,9 +29,10 @@ output across sessions and models.
 | L3 | Wrapper scripts (only write path) | `.claude/hooks/lib/kb-write-*.sh` |
 | L4 | Frozen retrieval algorithm | `recall-algorithm.md` |
 | L5 | Idempotent IDs (content hash) | `kb-common.sh::hash_id` |
-| L6 | Qdrant collection contract (model owned by SocratiCode) | `embeddings.lock` |
+| L6 | Vector layer config + built-collection fingerprint (athanor owns embedding) | `protocol/vector.config`, `.athanor/_state/embeddings.lock` |
 | L7 | Golden test fixtures | `test-fixtures/` |
 | L8 | Protocol version + migrations | `version.txt`, `migrations/` |
+| L9 | Replayable corpus (immutable, self-contained, DB-independent backup) | `.athanor/corpus/*.ndjson` |
 
 ## Entity types (5 universal)
 
@@ -72,10 +76,9 @@ All types share: `canonical_name`, `entity_type`, `source_session_id`, `created_
 
 ## Read protocol
 
-1. Call `kb-recall.sh '<query>'`. It outputs the canonical recall plan.
-2. Execute the plan: `codebase_context_search` over each artifact (athanor-runbooks, athanor-sessions, athanor-skills) + `mcp__knowledge-graph__search_memories` for graph fulltext + 1-hop expansion via `find_memories_by_name`.
-3. Merge with frozen weights from `recall-algorithm.md`:
-   `score = 0.50 * vector_norm + 0.30 * graph_match + 0.15 * confidence + 0.05 * recency`
+1. Call `kb-recall.sh '<query>'`. It runs the three vector passes INLINE (one embed, three artifact-filtered searches via the active driver) and outputs them under `vector_results`, plus the residual graph plan.
+2. Execute only the graph steps from the plan: `mcp__knowledge-graph__search_memories` for graph fulltext + 1-hop expansion via `find_memories_by_name`, then the disputed-entity filter.
+3. Rank all candidates (inline `vector_results` + graph hits) with the frozen `scoring_rubric` from `recall-algorithm.md` — an additive 0–10 rule set over result metadata. (The old weighted merge formula was retired; see recall-algorithm.md.)
 4. Return top-K (default K=8) grouped by type. Paths only, not bodies. Caller decides what to Read.
 
 ## Vocabulary growth

@@ -117,7 +117,7 @@ Required shape per finding:
 - For `axis: recall`, claims of "X is missing" MUST cite `expected.json` (when grading an eval) or be derivable from the transcript itself.
 
 **Anti-patterns** (validator will catch):
-- Citing service names that aren't in `protocol/vocabulary/services.txt` ("redis", "postgres", "etcd" etc.) as if they should be entities. If the actual upstream system is outside the closed vocabulary, the correct finding is "out-of-scope-service" with severity=low.
+- Treating every incidental tool or dependency mentioned in passing ("redis", "postgres", "etcd" etc.) as if it deserves its own entity. `canonical_name`s are free-form in v2, so there is no closed-vocabulary gate — but low-signal, mentioned-once names still pollute recall. Flag over-extraction with severity=low rather than minting an entity per mention.
 - Claiming "no Observation records" when there are observation records in the manifest. Re-read manifest before asserting absence.
 - Citing timestamps that aren't in the transcript.
 
@@ -136,21 +136,30 @@ Aggregate findings into one of:
 
 ## Output
 
-Write your decision to `.athanor/_state/supervisor-decisions.jsonl` (or to the eval-run path if in eval mode):
+Append your decision to `.athanor/_state/supervisor-decisions.jsonl` (or to the eval-run path if in eval mode) as **exactly one compact JSON line** — this is a JSON Lines ledger, one object per line. Build it with `jq -c` and `>>` append so it is never pretty-printed or multi-line; readers scope to your `session_id`, and an indented object corrupts the line-delimited contract.
 
-```jsonc
-{
-  "ts": "...",
-  "session_id": "...",
-  "outcome": "approve|reject|revise|escalate",
-  "forward_findings": [/* structured per the schema above */],
-  "adversarial_findings": [/* same shape */],
-  "reason": "<one-line summary>",
-  "manifest_count": <int>
-}
+```bash
+jq -cn \
+  --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+  --arg sid "<session-id>" \
+  --arg outcome "approve" \
+  --arg reason "<one-line summary>" \
+  --argjson forward '[]' \
+  --argjson adversarial '[]' \
+  --argjson manifest_count 0 \
+  '{ts:$ts, session_id:$sid, outcome:$outcome, forward_findings:$forward, adversarial_findings:$adversarial, reason:$reason, manifest_count:$manifest_count}' \
+  >> .athanor/_state/supervisor-decisions.jsonl
 ```
 
-**IMPORTANT: The JSON field MUST be named `outcome` (not `decision`) — session-stop.sh reads `.outcome // .decision` for compatibility, but `outcome` is preferred.**
+Populate `forward_findings` / `adversarial_findings` via `--argjson` with the structured arrays per the schema above. Schema (one line, expanded here only for readability):
+
+```jsonc
+{ "ts":"...", "session_id":"...", "outcome":"approve|reject|revise|escalate",
+  "forward_findings":[/* per schema above */], "adversarial_findings":[/* same shape */],
+  "reason":"<one-line summary>", "manifest_count":<int> }
+```
+
+**IMPORTANT: The field MUST be named `outcome` (not `decision`) — readers use `.outcome // .decision` for back-compat, but `outcome` is preferred. And it MUST be a single compact line.**
 
 Then run:
 

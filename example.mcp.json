@@ -1,0 +1,18 @@
+{
+  "_readme": "Real MCP config for athanor. knowledge-graph = Neo4j-backed memory server. See SETUP.md.",
+  "mcpServers": {
+    "knowledge-graph": {
+      "command": "uvx",
+      "args": [
+        "mcp-neo4j-memory",
+        "--db-url",
+        "bolt://localhost",
+        "--username",
+        "neo4j",
+        "--password",
+        "<password>"
+      ]
+    }
+  },
+  "_note_vector_layer": "The vector layer is NOT an MCP server. Athanor owns it directly via .claude/hooks/lib/vec/ (driver-based: Qdrant today, ChromaDB pluggable). Configure it in protocol/vector.config. No MCP registration needed."
+}

@@ -61,13 +61,13 @@ A supervisor agent runs adversarially after each distillation — blind to the d
 
 **Capture (Stop hook).** Async transcript copy → spawn distiller subagent.
 
-**Validate + Stage (distiller + wrappers).** The distiller is a read-only extraction agent. Every candidate entity, relation, observation passes through `kb-write-{entity,relation,observation}.sh`. Wrappers enforce schema, closed vocab, idempotency (content-hash IDs), and provenance. Three outcomes: `ok:<id>` → distiller stages the artifact to `_staging/<sid>/manifest.jsonl`; `reject:<reason>` → stop; `skip:already-written:<id>` → no-op. The distiller never touches Neo4j or SocratiCode directly.
+**Validate + Stage (distiller + wrappers).** The distiller is a read-only extraction agent. Every candidate entity, relation, observation passes through `kb-write-{entity,relation,observation}.sh`. Wrappers enforce schema, locked structural vocabulary (entity types + relation predicates — `canonical_name`s themselves are free-form), idempotency (content-hash IDs), and provenance. Three outcomes: `ok:<id>` → distiller stages the artifact to `_staging/<sid>/manifest.jsonl`; `reject:<reason>` → stop; `skip:already-written:<id>` → no-op. The distiller never touches Neo4j or the vector layer directly.
 
-**Commit (kb-committer).** A separate `kb-committer` agent reads the prepared, sorted manifest and commits to Neo4j + SocratiCode after the distiller exits — entities first, then relations, then observations — writes `committed-ids.jsonl`, writes the session digest, indexes artifacts into Qdrant via `codebase_context_index`, and runs confidence promotion.
+**Commit (kb-committer).** A separate `kb-committer` agent reads the prepared, sorted manifest and commits to Neo4j after the distiller exits — entities first, then relations, then observations — writes `committed-ids.jsonl`, writes the session digest, then runs `kb-index.sh` (append to the immutable corpus → embed → upsert into the active vector driver), and runs confidence promotion.
 
 **Audit (supervisor, async).** An independent supervisor — forbidden from reading the distiller's prompt — runs after the session digest exists. It re-derives findings from the transcript + what was committed. Findings with grep-verifiable evidence route to the HITL queue for human review. The supervisor can flag but not block; bad entries are pruned after human confirmation.
 
-**Recall (proactive).** The `UserPromptSubmit` hook detects investigation intent and runs `kb-recall.sh` against the prompt. Top-K results are injected as `additionalContext` before the model responds — mandatory, not optional. Future sessions retrieve via a frozen 6-step plan: three vector searches (runbooks, sessions, skills), one graph search, one 1-hop graph expansion, and one disputed-entity filter. Results are ranked using a 0–10 additive scoring rubric (service match +4, symptom category match +3, resolved runbook +2, recent session +1, top-3 vector hit +2, graph direct hit +2). Disputed entities are excluded from recall regardless of vector similarity.
+**Recall (proactive).** The `UserPromptSubmit` hook detects investigation intent and runs `kb-recall.sh` against the prompt. Top-K results are injected as `additionalContext` before the model responds — mandatory, not optional. `kb-recall.sh` runs the three vector passes (runbooks, sessions, skills) INLINE against the active driver — one query embed reused across three artifact-filtered searches — and emits them as `vector_results`, plus the residual graph plan: one graph search, one 1-hop graph expansion, and one disputed-entity filter. Results are ranked using a 0–10 additive scoring rubric (service match +4, symptom category match +3, resolved runbook +2, recent session +1, top-3 vector hit +2, graph direct hit +2). Disputed entities are excluded from recall regardless of vector similarity.
 
 Same prompt → semantically equivalent retrieval, regardless of model or session.
 
@@ -114,7 +114,7 @@ Tier 2 graders are forbidden from reading the distiller agent, the supervisor ag
     athanor-learn/              # On-demand "learn this" — full-pipeline mid-session capture
   agents/
     session-distiller.md        # Sonnet, async post-Stop — stages manifest
-    kb-committer.md             # Reads prepared manifest, commits entities/relations/observations to Neo4j+Qdrant, writes session digest, runs confidence promotion
+    kb-committer.md             # Reads prepared manifest, commits entities/relations/observations to Neo4j, writes session digest, indexes via kb-index.sh, runs confidence promotion
     distillation-supervisor.md  # Sonnet, validates manifests
     kb-auditor.md               # Opus, on-demand drift sweep
     kb-evaluator.md             # Tier 2 grader template
@@ -134,8 +134,17 @@ Tier 2 graders are forbidden from reading the distiller agent, the supervisor ag
     lib/
       kb-common.sh              # Shared helpers
       kb-write-{entity,relation,observation}.sh   # Write gates
-      kb-recall.sh              # Frozen retrieval plan
+      kb-recall.sh              # Runs vector passes inline + emits residual graph plan
+      kb-index.sh               # WRITE: corpus append + embed + upsert (both learn paths)
+      kb-reindex.sh             # Replay corpus → vector DB (DR / driver swap / model change)
       kb-validate.sh            # State sanity check
+      vec.sh                    # Dispatcher → vec Python package (owns venv)
+      vec/                      # Vector layer (athanor-owned; SocratiCode removed)
+        config.py               #   resolve VEC_* (env > protocol/vector.config > default)
+        embed.py                #   text → vector (Ollama; provider-pluggable)
+        corpus.py               #   append-only immutable NDJSON backup (source of truth)
+        drivers/                #   base.py + qdrant.py (live) + chromadb.py (stub)
+        cli.py                  #   health|ensure|backfill|index|reindex|recall|search
       kill-switch-check.sh      # Auto-trip + reset
       bypass-detector.sh        # Wrapper-bypass detection
       supervisor-gate.sh        # approve/reject/status
@@ -146,6 +155,7 @@ Tier 2 graders are forbidden from reading the distiller agent, the supervisor ag
 protocol/                      # Spec (committed) — schemas, vocab, recall algo, version
                                # Lives at repo root, NOT under .athanor/, so a fresh
                                # clone has vocabulary and the write-gates function.
+  vector.config                 # Vector layer config (driver, collection, embed model)
   vocabulary/
     entity-types.txt            # Concept, Finding, Procedure, Pattern, Session
     relations.txt               # 12 locked relation predicates
@@ -153,13 +163,14 @@ protocol/                      # Spec (committed) — schemas, vocab, recall alg
     session-outcomes.txt        # resolved, mitigated, open, abandoned
 
 .athanor/                      # KB (gitignored, per-clone)
-  _state/                       # Cursors, ledgers, kill-switch, health-score, HITL queue
+  _state/                       # Cursors, ledgers, kill-switch, health-score, HITL queue, embeddings.lock
   _eval/                        # Datasets + run history + tier scripts
   _staging/<sid>/               # Pre-commit manifests
   _quarantine/                  # Rejected manifests
   _audit/                       # On-demand audit reports
   _meta/                         # Internal design notes
   raw/                          # Transcript copies
+  corpus/<YYYY-MM>.ndjson       # Immutable, self-contained vector backup (replayable)
   distilled/sessions/           # Per-session digests
   runbooks/<svc>/<sym>.md       # Accumulated playbooks
   local-skills/<n>/SKILL.md     # WIP skills
@@ -171,7 +182,7 @@ protocol/                      # Spec (committed) — schemas, vocab, recall alg
 
 ## Quick start
 
-1. Clone the repo. Follow `SETUP.md` to get Neo4j, Qdrant, Ollama, and the MCP servers running.
+1. Clone the repo. Follow `SETUP.md` to get Neo4j (+ its MCP), Qdrant, and Ollama running. The vector layer is in-repo Python — `SETUP.md` covers the one-time venv bootstrap and first index.
 2. Open Claude Code from this directory: `claude`
 3. Just talk. Hooks fire automatically — capture, validate, commit, and proactive recall all happen silently.
 4. `/athanor` opens the dashboard — KB stats, recent writes, HITL queue, kill-switch status, eval results.
@@ -185,7 +196,8 @@ The KB accumulates knowledge from any domain. Content grows with use.
 |---|---|
 | Entity types | `Concept`, `Finding`, `Procedure`, `Pattern`, `Session` |
 | Vocabulary | 5 entity types, 12 locked relation predicates, 3 confidence tiers, 4 session outcomes |
-| Integrated MCPs | `knowledge-graph`, `socraticode` |
+| Integrated MCPs | `knowledge-graph` (Neo4j) |
+| Vector layer | In-repo, athanor-owned (`.claude/hooks/lib/vec/`) — driver-based (Qdrant live, ChromaDB pluggable) + Ollama embeddings. Not an MCP. |
 
 > Additional domain-specific MCPs (observability, infra, data, messaging) can be added per your environment — see `CLAUDE.md` for examples.
 
@@ -206,7 +218,7 @@ The KB accumulates knowledge from any domain. Content grows with use.
 
 - `CLAUDE.md` — agent operational rules (mandatory reading for the agent)
 - `DESIGN.md` — design rationale, why each architectural decision was made
-- `SETUP.md` — how to get Neo4j, Qdrant, Ollama, and MCPs running from scratch
+- `SETUP.md` — how to get Neo4j (+ MCP), Qdrant, Ollama, and the in-repo vector layer running from scratch
 - `protocol/PROTOCOL.md` — public spec, contract for all agents
 - `protocol/recall-algorithm.md` — the frozen retrieval algorithm
 - `.athanor/_eval/runs/` — historical eval results

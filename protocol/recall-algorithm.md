@@ -10,17 +10,21 @@ Changing the algorithm or weights requires a protocol version bump.
 
 ## Steps
 
+Steps 1–3 run INLINE inside `kb-recall.sh` (one query embed reused across three
+artifact-filtered searches against the active driver). Their results are emitted
+under `vector_results` in the plan; the caller does NOT call any vector tool.
+
 1. **Vector pass — runbooks**:
-   `codebase_context_search(query, artifactName="athanor-runbooks", limit=5)`
-   → list of {path, score, snippet}
+   `vec search --artifact runbooks --k 5` (single collection, payload filter)
+   → list of {artifact, source_path, score, snippet}
 
 2. **Vector pass — sessions**:
-   `codebase_context_search(query, artifactName="athanor-sessions", limit=3)`
-   → list of {path, score, snippet}
+   `vec search --artifact sessions --k 3`
+   → list of {artifact, source_path, score, snippet}
 
 3. **Vector pass — skills**:
-   `codebase_context_search(query, artifactName="athanor-skills", limit=3)`
-   → list of {path, score, snippet}
+   `vec search --artifact skills --k 3`
+   → list of {artifact, source_path, score, snippet}
 
 4. **Graph fulltext**:
    `mcp__knowledge-graph__search_memories(query)`
@@ -50,7 +54,7 @@ Changing the algorithm or weights requires a protocol version bump.
    - `finding_category_match` (a Finding category or domain matches query): **+3**
    - `source=procedure` AND `outcome=resolved` in result: **+2**
    - `recent_session` (session occurred within 30 days): **+1**
-   - `vector_rank_top3` (returned in top 3 by codebase_search): **+2**
+   - `vector_rank_top3` (returned in top 3 by the vector pass for its artifact): **+2**
    - `graph_direct_hit` (returned by search_memories with high confidence): **+2**
 
    Tie-break: prefer procedures over sessions over graph_relations.
@@ -75,11 +79,13 @@ Changing the algorithm or weights requires a protocol version bump.
 ## Determinism guarantees
 
 - Same query string → same retrieval (modulo new data writes).
-- Embedding consistency is owned by SocratiCode, not athanor: SocratiCode uses one
-  configured model for both indexing and querying, so query and index vectors are
-  always in the same space. athanor does not pin or verify the model — a prior
-  athanor-side pin was a redundant second source of truth that drifted and fired
-  false warnings. If you change SocratiCode's embedding model, re-index all
-  artifacts via `codebase_context_index`; existing vectors are model-specific.
+- Embedding is owned by athanor now (SocratiCode removed). The model is whatever
+  `protocol/vector.config` (or a `VEC_EMBED_MODEL` env override) specifies — it is
+  configurable, not pinned. `vec.sh` uses the SAME model for indexing and querying,
+  so query and index vectors are always in the same space by construction. The
+  built collection's model + dim are fingerprinted in `.athanor/_state/embeddings.lock`;
+  `kb-recall.sh` emits a non-blocking drift warning if the config model diverges
+  from the fingerprint. Changing the model requires `kb-reindex.sh --rebuild`
+  (re-embed everything from the corpus) — existing vectors are model- and dim-specific.
 - The scoring rubric is a fixed set of additive rules over result metadata; no
   model-side ranking calls and no frontmatter reads.
