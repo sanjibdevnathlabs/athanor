@@ -123,6 +123,28 @@ For each candidate, ask: *would a future session benefit from knowing this?* If 
 
 Stage the Session entity **early** — before staging its associated relations (OBSERVED_IN, RESOLVED_BY, etc.) — because relation wrappers verify that the subject/object entities are already staged. An aborted run that staged the Session but not all Findings is acceptable; re-distillation will complete the picture.
 
+### 2b. Extract facts from tool outputs and conversations
+
+After entity extraction, make a **second pass** over the transcript focused on factual information that the problem-focused pass tends to skip. Scan tool call results (API responses, CLI output, config reads) and user statements for:
+
+**Identity facts** — user IDs, handles, org IDs, display names, DONs, email addresses, team memberships, role assignments. These come from tools like `get_current_user`, `whoami`, profile lookups, org queries. Stage as Observations on an existing or new Concept entity for the identity (e.g. `user-sanjib-devnath`, `razorpay-pid-team`).
+
+**System state facts** — versions, config values, feature flags, environment variables, resource IDs, endpoint URLs, connection strings discovered during the session. Stage as Observations on the relevant Concept entity (create the Concept if it doesn't exist yet).
+
+**Relational facts** — ownership (who owns what service), membership (who is on what team), hierarchy (what reports to what), dependencies (service A calls service B) discovered from tool results or user statements. Stage as Relations between Concept entities.
+
+**Behavioral facts** — how a system actually responded (not just errors/bugs, but normal behavior worth remembering): default values, rate limits, response shapes, auth flows, permission models observed in tool output. Stage as Observations on the relevant Concept, or as Findings if the behavior was non-obvious or surprising.
+
+**Procedural facts** — incidental solutions, workarounds, and debugging sequences that weren't the session's main focus but solved a real sub-problem. Examples: the exact API call + params that unblocked something, a config tweak that fixed a side issue, a debugging sequence for an incidental blocker (auth failure, version mismatch, permission error), a command-line invocation that resolved a transient problem. Stage as Procedures (if the steps are reusable) or Observations on existing Concepts/Procedures (if they refine something already known). These are the "how I actually fixed it" details that step 2 skips when they aren't the session's primary narrative.
+
+Rules for this pass:
+- Same wrapper pipeline, same validation — no special path.
+- Do NOT duplicate what step 2 already extracted. This pass catches what the problem-focused pass misses.
+- Prefer Observations on existing entities over creating new ones. Create a new Concept only when no existing entity covers the subject.
+- Evidence snippets must come from tool results or user messages — not inferred.
+- Apply the same "would a future session benefit from knowing this?" filter. A user's DevRev ID: yes. A transient HTTP 200 status code: no.
+- These count toward the session caps (≤20 entities, ≤25 relations, ≤40 observations). If near capacity, prioritize identity and relational facts over system state.
+
 ### 3. Validate + stage every entity
 
 For each:
